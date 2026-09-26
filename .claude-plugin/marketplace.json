@@ -1,0 +1,14 @@
+{
+  "name": "aidelix-skills",
+  "owner": { "name": "Aidelix" },
+  "metadata": {
+    "description": "Public skills and the Claude Code plugin for Aidelix, the ticket tracker built for AI coding agents."
+  },
+  "plugins": [
+    {
+      "name": "aidelix",
+      "source": "./plugins/aidelix",
+      "description": "Connects Claude Code to Aidelix, with skills to connect, file tickets, work them and run a queue of them."
+    }
+  ]
+}

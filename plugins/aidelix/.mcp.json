@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "aidelix": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bridge.mjs"],
+      "env": {
+        "NODE_USE_ENV_PROXY": "${NODE_USE_ENV_PROXY:-1}"
+      }
+    }
+  }
+}

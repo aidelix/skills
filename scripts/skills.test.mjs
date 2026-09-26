@@ -140,3 +140,23 @@ describe('install commands', () => {
     },
   );
 });
+
+// The ticket-work skill is what an agent reads before the server connects,
+// so it carries the habits the server instructions ask for too.
+describe('aidelix', () => {
+  const skill = read('plugins/aidelix/skills/aidelix/SKILL.md');
+
+  it('asks for the ticket key in the branch, every commit and the pull request title', () => {
+    expect(skill).toMatch(/every commit message/);
+    expect(skill).toMatch(/`ABC-42: short summary`/);
+  });
+
+  it('asks the agent to put itself on the ticket it claims', () => {
+    expect(skill).toMatch(/assigneeAgentId/);
+  });
+
+  it('encourages checking the pull request for a conflict after review', () => {
+    expect(skill).toMatch(/every 5 to 10 minutes/);
+    expect(skill).toMatch(/merge conflict/);
+  });
+});

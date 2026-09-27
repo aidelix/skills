@@ -159,4 +159,15 @@ describe('aidelix', () => {
     expect(skill).toMatch(/every 5 to 10 minutes/);
     expect(skill).toMatch(/merge conflict/);
   });
+
+  // AIT-164: agents left the brain empty, so reading it before the plan and
+  // writing it before review are habits too.
+  it('asks the agent to read the brain before it plans and write it before review', () => {
+    expect(skill).toMatch(
+      /Before you plan, read its index with\s+`list_brain_pages`/,
+    );
+    expect(skill).toMatch(
+      /Before you move the\s+ticket to `in_review`, write down/,
+    );
+  });
 });

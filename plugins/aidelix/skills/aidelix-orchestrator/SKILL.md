@@ -95,6 +95,9 @@ environment offers. Brief each worker with:
 - To call `get_ticket` first, then follow the Aidelix server's instructions
   for ticket work: `claim_ticket`, the phases, test cases, the key in the
   branch, commits and pull request title.
+- To read the project's brain before it plans (`list_brain_pages`), and to
+  write what it learned into the brain before it moves the ticket to
+  `in_review`, naming the pages in its report.
 - To ask a person with `ask_question` when only a person can decide, and to
   stop and report back when the ticket is waiting (a blocking question, a
   refused gate it cannot fix, or a pull request ready for review).

@@ -33,6 +33,7 @@ This skill needs the Aidelix MCP tools. If they are missing, use the
 | `docs` | Documentation only. |
 | `spike` | A question to answer by research or a prototype, with a write-up. |
 | `brainstorm` | A problem to turn into tickets. It ends in new tickets, never code. |
+| `brain` | Knowledge to write into the brain: a convention, how a subsystem works, how to deploy. It ends in brain pages, never code. |
 | `epic` | A container for several tickets toward one goal. |
 | `human` | Work only a person can do: make an account, pay, set a secret, click a button in another product. |
 
@@ -69,6 +70,9 @@ Each criterion is something a person or an agent can check and see pass or
 fail, without reading the code. Name the observable result, not the
 implementation. Three to seven is usual; more means the ticket should be
 split.
+
+For a `brain` ticket, the criteria name the pages to write and the
+questions each one must answer for an agent with no context.
 
 Leave the criteria empty on a `brainstorm` or `spike` only when the
 question itself is the whole ticket, and say what the answer must contain

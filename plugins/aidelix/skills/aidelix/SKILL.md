@@ -34,6 +34,14 @@ refuses work that skips them:
 - After `claim_ticket`, put yourself on the ticket with `update_ticket`:
   `assigneeAgentId` is the agent id the claim returns, and an empty
   `assigneeUserId` takes its human user id.
+- While you wait on a person, for the answer to a question or for a human
+  ticket to move, do not read the ticket again and again. Started with the
+  plugin's channel, the session hears the events of the tickets you
+  claimed, asked on or gave steps to as a `<channel source="aidelix">`
+  message: call `get_ticket` then. Without it, run
+  `ait watch <ticket>... --since <askedAt>` in the background if `ait` is
+  installed, or call `list_ticket_events` with `wait`, sending its `next`
+  back each time.
 - After you move a ticket to `in_review`, if you are still running, check
   its pull request every 5 to 10 minutes with `get_ticket`. Fix a
   merge conflict or red checks and push, until the pull request is merged

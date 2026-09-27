@@ -169,5 +169,6 @@ describe('aidelix', () => {
     expect(skill).toMatch(
       /Before you move the\s+ticket to `in_review`, write down/,
     );
+    expect(skill).toMatch(/Never\s+write a secret into it/);
   });
 });

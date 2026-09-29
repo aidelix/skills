@@ -129,11 +129,13 @@ For each ticket that changed, act on what it now needs:
 | Status `blocked` | Tell the person what it waits on (its latest comment says). |
 | A gate refusal (`get_project_proof` bucket `refused`) | Tell the person the gate's name and remedy. If a worker owns the ticket, send it the remedy. |
 | `in_review`, pull request with `mergeable` false or `checks` failing | Send the ticket back to its worker to merge the base in or fix the checks. With no worker running, tell the person. |
+| `in_review`, pull request with `draft` true | Send the ticket back to its worker to mark the pull request ready, or move the ticket to `in_progress` if the work is not ready. With no worker running, tell the person. |
 | `in_review`, pull request merged | Tell the person it is ready for them to review and move to done. |
 | A question answered | Resume the worker, or start one if the ticket is ready. |
 
 Read pull request state from `get_ticket`'s `gitLinks`: `state`, `checks`
-(failing, running, passing) and `mergeable` (false is a merge conflict).
+(failing, running, passing), `mergeable` (false is a merge conflict) and
+`draft` (true is a draft pull request).
 
 Keep passes 5 to 30 minutes apart; the tracker does not change faster than
 the work does. In Claude Code, `/loop` repeats a prompt on an interval, for

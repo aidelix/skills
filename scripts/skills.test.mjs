@@ -13,7 +13,12 @@ const json = (path) => JSON.parse(read(path));
 const TOOLS = json('scripts/mcp-tools.json');
 
 // Backticked snake_case words that are not tool names.
-const NOT_TOOLS = new Set(['in_review', 'payment_required', 'relates_to']);
+const NOT_TOOLS = new Set([
+  'in_progress',
+  'in_review',
+  'payment_required',
+  'relates_to',
+]);
 
 const marketplace = json('.claude-plugin/marketplace.json');
 

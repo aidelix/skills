@@ -190,10 +190,10 @@ describe('aidelix', () => {
       /A project's brain holds knowledge of the project's own code and product: its architecture and how the parts fit, the domain model and business rules/,
     );
     expect(flat).toMatch(
-      /It never holds how to use Aidelix or its tools, your own client or sandbox \(proxies, shells, how to call MCP\), or ticket status and closeout logs/,
+      /It never holds how to use Aidelix or its tools to do your work, your own client or sandbox \(proxies, shells, how to call MCP; the repository's build and test steps do belong\), or ticket status and closeout logs/,
     );
     expect(flat).toMatch(
-      /Friction with Aidelix, its tools or your own client goes to the person you work for, never into the brain/,
+      /Friction with Aidelix, its tools or your own client goes to the person you work for, in your report or a ticket comment, never into the brain/,
     );
     expect(flat).toMatch(
       /If the brain has no overview of the codebase \(its architecture and domain model\), file a brain ticket for one/,

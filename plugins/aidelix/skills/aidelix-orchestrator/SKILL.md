@@ -64,14 +64,17 @@ include or only. For a scope that lists work to do, leave them out.
 
 Default order, unless the person gave one:
 
-1. Tickets in the scope's release first, when the scope spans releases.
-2. Bugs before other types.
-3. Priority: highest, high, medium, low, lowest.
-4. Lower ticket number first.
+1. Tickets in `ready` before tickets in `todo`: a person moved them to
+   Ready once they were shaped for an agent (AIT-218).
+2. Tickets in the scope's release first, when the scope spans releases.
+3. Bugs before other types.
+4. Priority: highest, high, medium, low, lowest.
+5. Lower ticket number first.
 
 A ticket is ready to start when all of these hold:
 
-- Its status is `todo`.
+- Its status is `ready`, or `todo` when the scope has no ticket in `ready`
+  or the person named it. Never move a ticket to `ready` yourself.
 - Nobody is assigned: `assigneeAgentId` is empty, and `assigneeUserId` is
   empty or names a person who told you the ticket is free to take.
 - It has no open questions (`blockingQuestions` is 0, and `get_ticket` shows

@@ -28,6 +28,27 @@ an HTTP proxy), and an agent key in
 `AIDELIX_API_KEY`. Set `AIDELIX_URL` for an instance other than
 `https://api.aidelix.com`.
 
+## Hear answers without polling (research preview)
+
+The plugin's server is also a Claude Code
+[channel](https://code.claude.com/docs/en/channels). Once the agent claims
+a ticket, asks a question on one or writes a human ticket's steps, the
+server waits on those tickets and pushes what happens on them into the
+session: a question answered, a step marked, a status change, a comment. The
+agent reads the ticket then, instead of every few minutes.
+
+Channels are a research preview, and this one is not on Anthropic's
+allowlist yet, so start Claude Code with it by name:
+
+```
+claude --dangerously-load-development-channels plugin:aidelix@aidelix-skills
+```
+
+It works in the terminal and in Remote Control, not in cloud sessions.
+There, the agent runs `ait watch` in the background, or calls
+`list_ticket_events` with `wait`. Set `AIDELIX_CHANNEL=0` to turn the
+waiting off.
+
 ## Other agents
 
 Each skill is a folder with a `SKILL.md` in `plugins/aidelix/skills/`, in

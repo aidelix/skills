@@ -1,7 +1,12 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { bridge, config, messages } from '../plugins/aidelix/bridge.mjs';
+import {
+  bridge,
+  CHANNEL_INSTRUCTIONS,
+  config,
+  messages,
+} from '../plugins/aidelix/bridge.mjs';
 
 // The plugin's stdio bridge: it reads AIDELIX_URL and
 // AIDELIX_API_KEY first and falls back to AIT_URL and AIT_API_KEY, which a
@@ -224,5 +229,163 @@ describe('plugin bridge', () => {
       });
       expect(seen).toHaveLength(3);
     });
+  });
+});
+
+// AIT-169: the bridge is a Claude Code channel. It waits on the tickets the
+// agent works through GET /v1/events and pushes each event into the session.
+describe('plugin bridge as a channel', () => {
+  const ENV = { AIDELIX_URL: 'http://api.test', AIDELIX_API_KEY: NEW_KEY };
+  const EVENT = {
+    cursor: 'c2',
+    kind: 'question_answered',
+    ticket: 'AIT-42',
+    ticketId: '33333333-3333-4333-8333-333333333333',
+    subjectId: '66666666-6666-4666-8666-666666666666',
+    detail: {},
+    at: '2026-09-27T14:00:00.000Z',
+    actor: { humanUserId: 'u', agentId: null },
+  };
+  const json = (body, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  /** A bridge whose events route answers from `pages`, one per request. */
+  function channel(env, pages) {
+    const calls = [];
+    const written = [];
+    const logged = [];
+    let settle;
+    const drained = new Promise((resolve) => (settle = resolve));
+    const handle = bridge({
+      env,
+      fetch: (url, init) => {
+        calls.push({ url, headers: init.headers });
+        if (url.includes('/v1/mcp')) {
+          const message = JSON.parse(init.body);
+          const result =
+            message.method === 'initialize'
+              ? {
+                  protocolVersion: '2025-06-18',
+                  capabilities: { tools: {} },
+                  instructions: 'Aidelix.',
+                }
+              : { content: [{ type: 'text', text: '{}' }] };
+          return Promise.resolve(
+            json({ jsonrpc: '2.0', id: message.id, result }),
+          );
+        }
+        const page = pages.shift();
+        if (!page) {
+          settle();
+          // Hold the last request open until the test aborts it.
+          return new Promise((_, reject) =>
+            init.signal.addEventListener('abort', () =>
+              reject(new Error('aborted')),
+            ),
+          );
+        }
+        return Promise.resolve(page);
+      },
+      write: (m) => written.push(m),
+      log: (text) => logged.push(text),
+      sleep: () => Promise.resolve(),
+    });
+    return { calls, written, logged, handle, drained };
+  }
+
+  const call = (id, name, args) => ({
+    jsonrpc: '2.0',
+    id,
+    method: 'tools/call',
+    params: { name, arguments: args },
+  });
+
+  it('declares the channel and says what its events mean', async () => {
+    const r = channel(ENV, []);
+    await r.handle(JSON.stringify(INIT));
+    const result = r.written[0].result;
+    expect(result.capabilities).toEqual({
+      tools: {},
+      experimental: { 'claude/channel': {} },
+    });
+    expect(result.instructions).toBe(`Aidelix.\n\n${CHANNEL_INSTRUCTIONS}`);
+  });
+
+  it('waits on a claimed ticket and pushes each event, walking on from next', async () => {
+    const r = channel(ENV, [
+      json({ events: [], next: 'c1' }),
+      json({ events: [EVENT], next: 'c2' }),
+    ]);
+    await r.handle(
+      JSON.stringify(call(2, 'claim_ticket', { ticket: 'ait-42' })),
+    );
+    await r.drained;
+    const events = r.calls.filter((c) => c.url.includes('/v1/events'));
+    expect(events.map((c) => c.url)).toEqual([
+      'http://api.test/v1/events?tickets=AIT-42&wait=25',
+      'http://api.test/v1/events?tickets=AIT-42&wait=25&after=c1',
+      'http://api.test/v1/events?tickets=AIT-42&wait=25&after=c2',
+    ]);
+    expect(events[0].headers.authorization).toBe(`Bearer ${NEW_KEY}`);
+    expect(r.written.at(-1)).toEqual({
+      jsonrpc: '2.0',
+      method: 'notifications/claude/channel',
+      params: {
+        content:
+          'AIT-42: question answered by a person. Call get_ticket AIT-42 for what changed.',
+        meta: {
+          ticket: 'AIT-42',
+          kind: 'question_answered',
+          subject_id: EVENT.subjectId,
+        },
+      },
+    });
+  });
+
+  it('adds a ticket to the wait at once, and ignores other tools', async () => {
+    const r = channel(ENV, [json({ events: [], next: 'c1' })]);
+    await r.handle(JSON.stringify(call(2, 'get_ticket', { ticket: 'AIT-1' })));
+    expect(r.calls.filter((c) => c.url.includes('/v1/events'))).toHaveLength(0);
+    await r.handle(
+      JSON.stringify(call(3, 'ask_question', { ticket: 'AIT-42' })),
+    );
+    await r.drained;
+    await r.handle(
+      JSON.stringify(call(4, 'set_instructions', { ticket: 'AIT-43' })),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const events = r.calls.filter((c) => c.url.includes('/v1/events'));
+    expect(events.at(-1).url).toBe(
+      'http://api.test/v1/events?tickets=AIT-42%2CAIT-43&wait=25&after=c1',
+    );
+  });
+
+  it('stops asking a server that has no events, and waits on nothing when AIDELIX_CHANNEL is 0', async () => {
+    const old = channel(ENV, [
+      json(
+        { error: { code: 'not_found', message: 'No route.', details: {} } },
+        404,
+      ),
+    ]);
+    await old.handle(
+      JSON.stringify(call(2, 'claim_ticket', { ticket: 'AIT-42' })),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(old.calls.filter((c) => c.url.includes('/v1/events'))).toHaveLength(
+      1,
+    );
+
+    const off = channel({ ...ENV, AIDELIX_CHANNEL: '0' }, []);
+    await off.handle(JSON.stringify(INIT));
+    await off.handle(
+      JSON.stringify(call(2, 'claim_ticket', { ticket: 'AIT-42' })),
+    );
+    expect(off.written[0].result.capabilities.experimental).toBeUndefined();
+    expect(off.calls.filter((c) => c.url.includes('/v1/events'))).toHaveLength(
+      0,
+    );
   });
 });

@@ -31,5 +31,6 @@
   "write_brain_page",
   "edit_brain_section",
   "delete_brain_page",
-  "brain_page_history"
+  "brain_page_history",
+  "list_ticket_events"
 ]

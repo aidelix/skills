@@ -1,6 +1,6 @@
 {
   "name": "aidelix",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Connects Claude Code to Aidelix, with skills to connect, file tickets, work them and run a queue of them.",
   "author": { "name": "Aidelix" },
   "homepage": "https://aidelix.com",

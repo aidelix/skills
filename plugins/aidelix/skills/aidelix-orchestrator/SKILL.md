@@ -134,7 +134,8 @@ For each ticket that changed, act on what it now needs:
 | A question answered | Resume the worker, or start one if the ticket is ready. |
 
 Read pull request state from `get_ticket`'s `gitLinks`: `state`, `checks`
-(failing, running, passing) and `mergeable` (false is a merge conflict).
+(failing, running, passing), `mergeable` (false is a merge conflict) and
+`draft` (true is a draft pull request).
 
 Keep passes 5 to 30 minutes apart; the tracker does not change faster than
 the work does. In Claude Code, `/loop` repeats a prompt on an interval, for

@@ -42,7 +42,10 @@ refuses work that skips them:
   `ait watch <ticket>... --since <askedAt>` in the background if `ait` is
   installed, or call `list_ticket_events` with `wait`, sending its `next`
   back each time.
-- After you move a ticket to `in_review`, if you are still running, check
+- Never leave a ticket in `in_review` with a draft pull request: mark it
+  ready with `gh pr ready` before the move, or keep the ticket
+  `in_progress` or `blocked` while the work is not ready. After you move a
+  ticket to `in_review`, if you are still running, check
   its pull request every 5 to 10 minutes with `get_ticket`. Fix a
   merge conflict or red checks and push, until the pull request is merged
   or closed.

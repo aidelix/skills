@@ -77,3 +77,51 @@ server is not connected: use the `aidelix-connect` skill.
 To run many tickets at once, by release, label, epic or status, use the
 `aidelix-orchestrator` skill. To write new tickets, use the
 `aidelix-file-tickets` skill.
+
+## Screenshots when the backend is unavailable
+
+Serve the built frontend locally. Use the repository's browser test tools to
+stub API responses, which means returning fixed test data instead of calling
+the backend. Keep the stubs outside the product code. Use placeholder data,
+never customer data or secrets. Capture the base and feature branches at the
+same viewport and route with the same data. State which responses were
+stubbed in the evidence caption. These images show the interface only, not
+proof that the backend works.
+
+Prefer ticket uploads through `request_upload` and `complete_upload`.
+If a pull request needs repository-hosted images, use a separate orphan
+branch, a branch with no parent commit. Publish only when repository writes
+are authorized. Keep the images outside the feature branch and never merge
+the evidence branch into product code.
+
+From the product checkout, replace `ABC-42` and the screenshot directory
+below. Make sure that `before.png` and `after.png` contain only safe test data.
+This example creates a new branch. If that branch already exists, use a new
+name or update its existing history without a force push.
+
+```sh
+repository=$(git remote get-url origin)
+screenshots=/absolute/path/to/screenshots
+evidence_dir=$(mktemp -d)
+git -C "$evidence_dir" init --initial-branch=evidence/ABC-42
+git -C "$evidence_dir" remote add origin "$repository"
+cp "$screenshots/before.png" "$screenshots/after.png" "$evidence_dir/"
+git -C "$evidence_dir" add -- before.png after.png
+git -C "$evidence_dir" diff --cached --stat
+git -C "$evidence_dir" commit -m "ABC-42: add screenshot evidence"
+git -C "$evidence_dir" push origin HEAD:refs/heads/evidence/ABC-42
+git -C "$evidence_dir" rev-parse HEAD
+```
+
+Use that full commit SHA in each image URL, so later pushes cannot change
+the recorded evidence:
+
+```markdown
+![Before, with stubbed API responses](https://github.com/OWNER/REPO/blob/FULL_COMMIT_SHA/before.png?raw=true)
+![After, with stubbed API responses](https://github.com/OWNER/REPO/blob/FULL_COMMIT_SHA/after.png?raw=true)
+```
+
+Replace the owner, repository, and SHA with the actual values. Private
+repository images need repository access and can fail in external viewers.
+Use ticket uploads if reviewers cannot view them. Keep this recipe here,
+not in the project brain or a second skill.

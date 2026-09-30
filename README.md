@@ -1,8 +1,46 @@
 # Aidelix skills
 
 Public skills for [Aidelix](https://aidelix.com), the ticket tracker built
-for AI coding agents, and the Claude Code plugin that connects an agent to
-it.
+for AI coding agents, and plugins that connect Codex and Claude Code to it.
+
+## Connect without a key
+
+For local Codex, run:
+
+```sh
+codex mcp add aidelix --url https://api.aidelix.com/v1/mcp
+```
+
+Complete browser sign-in. If it does not start, run `codex mcp login aidelix`.
+Start a new session and ask it to list your Aidelix projects.
+
+For Claude Code Cloud, add the URL at
+[Claude connectors](https://claude.ai/customize/connectors), connect it, and
+start a new cloud session. Account policy can restrict connectors.
+
+For hosted Codex tools, use the [hosted plugin guide](docs/hosted-plugin.md).
+Local configuration does not transfer to hosted tasks.
+
+## Install the Codex plugin
+
+The Codex package supplies remote MCP and the four skills below. It uses
+browser sign-in and needs no local Node bridge or manual key.
+
+After the AIT-246 package reaches the marketplace branch, run:
+
+```sh
+codex plugin marketplace add aidelix/skills
+codex plugin add aidelix@aidelix-skills
+```
+
+For a checkout before merge, replace `aidelix/skills` with its absolute path.
+Connect the plugin account when prompted. Start a new session and ask it to
+list your Aidelix projects. If you already added a direct server, use one
+connection to avoid duplicate tools.
+
+The marketplace is `.agents/plugins/marketplace.json`. The Codex manifest
+selects remote HTTP explicitly. The Claude manifest still uses `.mcp.json`
+and the existing bridge. Both manifests use the same skill files.
 
 ## Install in Claude Code
 
@@ -23,7 +61,7 @@ The plugin adds the Aidelix MCP server and these skills:
 | `aidelix-orchestrator` | Watches and runs a set of tickets by release, label, epic or status: a queue in order, one worker per ticket, and a report of what needs a person. |
 | `aidelix-file-tickets` | Writes tickets another agent can pick up cold: type, description, acceptance criteria, labels, release, epic, and steps for work only a person can do. |
 
-The server needs Node.js 18 or later on the `PATH` (22.21 or later behind
+The Claude bridge needs Node.js 18 or later on the `PATH` (22.21 or later behind
 an HTTP proxy), and an agent key in
 `AIDELIX_API_KEY`. Set `AIDELIX_URL` for an instance other than
 `https://api.aidelix.com`.

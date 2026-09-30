@@ -200,3 +200,27 @@ describe('aidelix', () => {
     );
   });
 });
+
+// AIT-246: the Codex package must work without the local Claude bridge.
+describe('Codex distribution', () => {
+  it('resolves the shared skills and a remote server from the marketplace package', () => {
+    const catalog = json('.agents/plugins/marketplace.json');
+    const entry = catalog.plugins.find((plugin) => plugin.name === 'aidelix');
+    const root = join(ROOT, entry.source.path);
+    const manifest = JSON.parse(
+      readFileSync(join(root, '.codex-plugin/plugin.json'), 'utf8'),
+    );
+    expect(manifest.name).toBe(entry.name);
+    expect(entry.policy.authentication).toBe('ON_INSTALL');
+    expect(manifest.mcpServers).toEqual({
+      aidelix: { type: 'http', url: 'https://api.aidelix.com/v1/mcp' },
+    });
+    const sharedSkills = readdirSync(join(root, manifest.skills)).sort();
+    expect(sharedSkills).toEqual(skills.map((skill) => skill.name).sort());
+    for (const name of sharedSkills) {
+      expect(existsSync(join(root, manifest.skills, name, 'SKILL.md'))).toBe(
+        true,
+      );
+    }
+  });
+});

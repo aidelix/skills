@@ -1,0 +1,20 @@
+{
+  "name": "aidelix-skills",
+  "interface": {
+    "displayName": "Aidelix Skills"
+  },
+  "plugins": [
+    {
+      "name": "aidelix",
+      "source": {
+        "source": "local",
+        "path": "./plugins/aidelix"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

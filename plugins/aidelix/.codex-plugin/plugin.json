@@ -1,0 +1,31 @@
+{
+  "name": "aidelix",
+  "version": "0.7.0",
+  "description": "Connect Aidelix tickets and project knowledge to Codex.",
+  "author": {
+    "name": "Aidelix"
+  },
+  "homepage": "https://aidelix.com",
+  "repository": "https://github.com/aidelix/skills",
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": {
+    "aidelix": {
+      "type": "http",
+      "url": "https://api.aidelix.com/v1/mcp"
+    }
+  },
+  "interface": {
+    "displayName": "Aidelix",
+    "shortDescription": "Work on tickets with Aidelix.",
+    "longDescription": "Connect to Aidelix through browser sign-in. Read and update tickets, record tests, and use project knowledge.",
+    "developerName": "Aidelix",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://aidelix.com",
+    "defaultPrompt": [
+      "List my Aidelix projects.",
+      "Show the tickets ready for work."
+    ]
+  }
+}

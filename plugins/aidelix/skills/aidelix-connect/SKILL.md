@@ -1,6 +1,6 @@
 ---
 name: aidelix-connect
-description: Use when a person wants to connect this agent to Aidelix, when the Aidelix tools are missing or fail with unauthenticated, or when they ask how to set up the Aidelix MCP server in Claude Code, Cursor or another MCP client. Walks through getting an agent key, storing it safely, adding the server and proving the connection.
+description: Use when a person wants to connect this agent to Aidelix, when the Aidelix tools are missing or fail with unauthenticated, or when they ask how to set up the Aidelix MCP server in Codex, Claude Code, cloud sessions, or another MCP client. Prefers browser sign-in and distinguishes local setup from hosted connections.
 ---
 
 # Connect to Aidelix
@@ -37,7 +37,9 @@ If you have the Aidelix tools, call `list_projects`.
   to step 3 to issue a new one.
 - There are no Aidelix tools: go on to step 2.
 
-In Claude Code, `/mcp` shows each server and why a failed one failed.
+In local Codex and Claude Code, `/mcp` shows each server and its state.
+Identify the platform before changing its configuration. A local connection
+does not configure a hosted session.
 
 ## 2. Can the person sign in without a key?
 
@@ -49,25 +51,77 @@ curl -s -o /dev/null -w '%{http_code}\n' "${AIDELIX_URL:-${AIT_URL:-https://api.
 ```
 
 - `200`: sign-in is offered. Use the sign-in path below and skip the key.
-- Anything else: this server takes a key. Go to step 3.
+- A network error or server error: report it. Do not infer that browser sign-in is unavailable.
+- A confirmed server without OAuth support: use a key in a local client or automated job.
 
-### The sign-in path
+### Codex on a local host
 
-Claude Code:
+For a direct connection, run:
+
+```sh
+codex mcp add aidelix --url "${AIDELIX_URL:-${AIT_URL:-https://api.aidelix.com}}/v1/mcp"
+```
+
+Let the person complete browser sign-in. If sign-in does not start, run
+`codex mcp login aidelix`. Start a new session, then call `list_projects`.
+The CLI, desktop app, and IDE share configuration on the same host.
+
+If the Codex Aidelix plugin already supplies the server, authenticate that
+server through the plugin instead. Do not add a duplicate connection.
+The Codex plugin uses remote HTTP and does not need Node or an agent key.
+
+### Claude Code on a local host
+
+If Aidelix is already connected in the person's Claude account, use that
+connector with their Claude subscription login. API-key and third-party
+provider sessions do not load these account connectors.
+
+For a direct local connection, run:
 
 ```sh
 claude mcp add --transport http --scope user aidelix "${AIDELIX_URL:-${AIT_URL:-https://api.aidelix.com}}/v1/mcp"
 ```
 
-Then the person runs `/mcp` in Claude Code, picks `aidelix`, and chooses
-Authenticate. A browser opens on the Aidelix sign-in page. After they sign
-in, the session is connected. Go to step 6.
+The person runs `/mcp`, selects Aidelix, and chooses Authenticate. They sign
+in and allow access. Go to step 6.
 
-Claude on the web or the desktop app: Settings, Connectors, Add custom
-connector, paste `https://api.aidelix.com/v1/mcp`, then Connect and sign in.
+The Claude plugin bridge still needs a key. Use either that bridge or the
+direct connection. Explain an existing duplicate before removing it.
 
-If the plugin is installed, its own server stays failed without a key.
-That is harmless; the server you added by sign-in is the one to use.
+### Claude Code Cloud, Claude web, and Claude desktop
+
+Open https://claude.ai/customize/connectors. Add the instance's MCP endpoint
+as a custom connector. Connect it, sign in, and allow access in Aidelix.
+For Claude Code Cloud, start a new session with the same account.
+
+The cloud host supplies account connectors. Organization policy can restrict
+them, and Team or Enterprise accounts can require an admin to add one.
+A local plugin or terminal command does not configure this cloud connection.
+Call `list_projects` in the new session before ticket work.
+
+### Codex Cloud and hosted ChatGPT Work
+
+Use a hosted Aidelix plugin connection from the workspace or plugin directory.
+Install it, connect its account, and allow access in Aidelix. Start a new
+task and call `list_projects`. Do not claim success until that call works.
+
+A local repository plugin does not publish a hosted connection. If the plugin
+is unavailable, the person needs an admin to publish it. Use the distribution
+guide at https://github.com/aidelix/skills/blob/main/docs/hosted-plugin.md.
+The package uses production. Another instance needs its own endpoint.
+
+Current cloud environments can provide a network secret for shell access.
+That credential reaches only approved HTTPS destinations through a proxy.
+This is not native MCP tool discovery. Do not replace a failed connection
+with an untested shell recipe or print the secret to diagnose it.
+
+Legacy Codex Cloud exposes secrets only during setup. Setup exports do not
+reach its agent phase. Do not persist tokens in repository or cached files.
+
+Sources: https://learn.chatgpt.com/docs/extend/mcp?surface=cli,
+https://learn.chatgpt.com/docs/environments/cloud-environments,
+https://learn.chatgpt.com/docs/environments/cloud-environment,
+and https://code.claude.com/docs/en/mcp.
 
 ## 3. Issue an agent key
 
@@ -104,9 +158,8 @@ the key between the quotes. For an instance other than production, they
 add `export AIDELIX_URL="https://..."` there too (the API URL, without
 `/v1`).
 
-In a cloud session, such as Claude Code on the web, there is no profile:
-the person adds `AIDELIX_API_KEY` to the environment's variables in its
-settings, and starts a new session, which is the first to see it.
+For a cloud session, use the platform-specific path in step 2. Do not assume
+that a shell profile or local environment reaches a hosted task.
 
 The older names `AIT_API_KEY` and `AIT_URL` still work when the
 `AIDELIX_` names are unset.
@@ -115,7 +168,7 @@ The older names `AIT_API_KEY` and `AIT_URL` still work when the
 
 Pick the one that fits the client.
 
-**Claude Code, with the plugin (recommended).** The plugin adds the server
+**Claude Code, with the optional bridge plugin.** The plugin adds the server
 and the Aidelix skills:
 
 ```
@@ -138,6 +191,17 @@ claude mcp add --transport http --scope user aidelix "${AIDELIX_URL:-${AIT_URL:-
 ```
 
 This writes the key into `~/.claude.json`, which must stay private.
+
+**Codex on a local host.** After the person stores the key, run:
+
+```sh
+codex mcp add aidelix --url "${AIDELIX_URL:-${AIT_URL:-https://api.aidelix.com}}/v1/mcp" --bearer-token-env-var AIDELIX_API_KEY
+```
+
+Use `AIT_API_KEY` as the variable name only when the person uses that older
+name. Start Codex from the shell that contains the variable. The configuration
+stores the variable name, not its value. Prefer browser sign-in for desktop
+launchers that do not inherit shell variables.
 
 **Any other MCP client** (Cursor, Windsurf, and others). Most take a JSON
 file of this shape; the client's docs say where it lives (Cursor:

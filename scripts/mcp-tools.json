@@ -30,7 +30,10 @@
   "read_brain_page",
   "write_brain_page",
   "edit_brain_section",
+  "move_brain_page",
   "delete_brain_page",
   "brain_page_history",
-  "list_ticket_events"
+  "list_ticket_events",
+  "get_retro",
+  "propose_retro_changes"
 ]

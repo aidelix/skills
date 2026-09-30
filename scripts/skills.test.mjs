@@ -126,6 +126,26 @@ describe('skills', () => {
   );
 });
 
+describe('brain filing', () => {
+  it.each(['aidelix', 'aidelix-orchestrator'])(
+    '%s teaches nested paths and history-preserving moves',
+    (name) => {
+      const text = read(`plugins/aidelix/skills/${name}/SKILL.md`).replace(
+        /\s+/g,
+        ' ',
+      );
+      expect(text).toContain(
+        'Brain paths nest: `how-to/deploy` is a child of `how-to`.',
+      );
+      expect(text).toContain('File each page under its topic.');
+      expect(text).toContain('Move a misfiled page with `move_brain_page`.');
+      expect(text).toContain(
+        'Never copy and delete a page to move it, because that loses its history.',
+      );
+    },
+  );
+});
+
 describe('aidelix-connect', () => {
   it('forbids the commands that print every secret in the environment', () => {
     const text = read('plugins/aidelix/skills/aidelix-connect/SKILL.md');

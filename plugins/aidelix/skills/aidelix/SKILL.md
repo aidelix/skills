@@ -49,7 +49,10 @@ refuses work that skips them:
   GitHub does not link the work to the ticket.
 - After `claim_ticket`, put yourself on the ticket with `update_ticket`:
   `assigneeAgentId` is the agent id the claim returns, and an empty
-  `assigneeUserId` takes its human user id.
+  `assigneeUserId` takes its human user id. If a person pressed Run in my
+  own agent on this ticket in the console and your key acts for that same
+  person, this `claim_ticket` call also attaches your session to that run,
+  which the console then follows; nothing else to do for that.
 - While you wait on a person, for the answer to a question or for a human
   ticket to move, do not read the ticket again and again. Started with the
   plugin's channel, the session hears the events of the tickets you

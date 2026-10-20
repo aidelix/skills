@@ -185,6 +185,16 @@ describe('aidelix', () => {
     expect(skill).toMatch(/merge conflict/);
   });
 
+  // AIT-363: the reviewer can read a local diff (AIT-358), so the review
+  // phase runs it before a pull request exists.
+  it('asks the agent to run review_diff before it opens or pushes a pull request', () => {
+    const flat = skill.replace(/\s+/g, ' ');
+    expect(flat).toMatch(
+      /before you open a pull request or push to one, call `review_diff`/,
+    );
+    expect(flat).toMatch(/`git diff <target branch>`/);
+  });
+
   // AIT-164: agents left the brain empty, so reading it before the plan and
   // writing it before review are habits too.
   it('asks the agent to read the brain before it plans and write it before review', () => {

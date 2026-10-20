@@ -18,6 +18,13 @@ const NOT_TOOLS = new Set([
   'in_review',
   'payment_required',
   'relates_to',
+  // Standing permission ids (AIT-514), not tools.
+  'merge_test_branch',
+  'merge_approved',
+  'mark_done_after_merge',
+  'close_epic',
+  'waive_shipped',
+  'bulk_status',
 ]);
 
 const marketplace = json('.claude-plugin/marketplace.json');

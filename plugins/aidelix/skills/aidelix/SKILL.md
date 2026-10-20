@@ -65,8 +65,9 @@ refuses work that skips them:
   call `review_diff` with the ticket, the repository id (from a gitLink on
   `get_ticket`) and the output of `git diff <target branch>`. It runs the
   code reviewer over your diff and returns the changes, their flags and the
-  findings a person would see on the pull request. Fix what it finds, run
-  it again, and name what it found in the review phase detail. If code
+  findings a person would see on the pull request. Fix what it finds and
+  run it again, until it finds nothing you agree with. Name what it found,
+  and each finding you left and why, in the review phase detail. If code
   review is off for the repository, say so in the detail and go on.
 - Never leave a ticket in `in_review` with a draft pull request: mark it
   ready with `gh pr ready` before the move, or keep the ticket

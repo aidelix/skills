@@ -35,5 +35,15 @@
   "brain_page_history",
   "list_ticket_events",
   "get_retro",
-  "propose_retro_changes"
+  "propose_retro_changes",
+  "get_review",
+  "request_review",
+  "request_rereview",
+  "request_findings",
+  "merge_review",
+  "review_diff",
+  "reply_to_thread",
+  "declare_changes",
+  "set_manual_split",
+  "reply_to_finding"
 ]

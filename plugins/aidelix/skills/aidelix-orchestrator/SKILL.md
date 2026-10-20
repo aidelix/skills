@@ -108,6 +108,9 @@ environment offers. Brief each worker with:
   File each page under its topic. Move a misfiled page with
   `move_brain_page`. Never copy and delete a page to move it, because that
   loses its history.
+- To call `review_diff` on its `git diff` against the target branch in its
+  review phase, before it opens or pushes a pull request, fix what it
+  finds, and name the result in the review phase detail.
 - To ask a person with `ask_question` when only a person can decide, and to
   stop and report back when the ticket is waiting (a blocking question, a
   refused gate it cannot fix, or a pull request ready for review).

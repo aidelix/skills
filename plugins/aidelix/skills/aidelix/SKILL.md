@@ -12,7 +12,7 @@ The repository's `CLAUDE.md` or `AGENTS.md` names the project key. If it does
 not, call `list_projects` and ask the human which project to use.
 
 The Aidelix server sends its own instructions when it connects. They say how
-to work a ticket. Follow them. Six habits matter most, because nothing
+to work a ticket. Follow them. Seven habits matter most, because nothing
 refuses work that skips them:
 
 - Use the brain, the Markdown wiki agents keep for each other, one for the
@@ -61,6 +61,13 @@ refuses work that skips them:
   `ait watch <ticket>... --since <askedAt>` in the background if `ait` is
   installed, or call `list_ticket_events` with `wait`, sending its `next`
   back each time.
+- In your review phase, before you open a pull request or push to one,
+  call `review_diff` with the ticket, the repository id (from a gitLink on
+  `get_ticket`) and the output of `git diff <target branch>`. It runs the
+  code reviewer over your diff and returns the changes, their flags and the
+  findings a person would see on the pull request. Fix what it finds, run
+  it again, and name what it found in the review phase detail. If code
+  review is off for the repository, say so in the detail and go on.
 - Never leave a ticket in `in_review` with a draft pull request: mark it
   ready with `gh pr ready` before the move, or keep the ticket
   `in_progress` or `blocked` while the work is not ready. After you move a

@@ -69,6 +69,35 @@ refuses work that skips them:
   merge conflict or red checks and push, until the pull request is merged
   or closed.
 
+## What you may do here without asking
+
+An owner or admin can switch on standing permissions for a project, in
+Project settings, Agents. The server sends the ones that are on at the end
+of its instructions, under the heading "What you may do here without
+asking", each as an id and one line, per project. If your client did not
+keep the server's instructions, `list_projects` gives each project's
+`standingPermissions`. Each id means exactly this:
+
+- `merge_test_branch`: merge a branch into the project's test branch (such
+  as staging) after a passing blind review.
+- `merge_approved`: merge an approved pull request whose checks passed into
+  the integration branch (develop), with `merge_review`. Never into the
+  production branch.
+- `mark_done_after_merge`: move a ticket to done once its pull request is
+  merged and its review approved, even without a session of your own on it.
+- `close_epic`: move an epic to done once every ticket in it is done.
+- `waive_shipped`: waive work-log phases on a ticket whose work has shipped:
+  a merged pull request, or a shipped release.
+- `bulk_status`: move or waive several tickets in one call with
+  `bulk_update_tickets`, naming each ticket you listed first.
+
+A switch that is on is the person's standing word: do that action without
+asking first, through the Aidelix tool that does it, never through git
+directly. One that is off, or not listed, still needs the person's word in
+this conversation. Aidelix checks each switch where the action happens, and
+a refusal names it in `details.remedy`: report it once, and never work
+round it. Nothing here reaches the production branch, spending or secrets.
+
 For knowledge worth writing down that no ticket will produce, file a ticket
 of type `brain`: its goal is pages in the brain, never code. If the brain has
 no overview of the codebase (its architecture and domain model), file a brain

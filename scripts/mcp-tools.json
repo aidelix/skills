@@ -19,6 +19,8 @@
   "complete_phase",
   "fail_phase",
   "waive_phase",
+  "bulk_update_tickets",
+  "merge_review",
   "ask_question",
   "answer_question",
   "withdraw_question",

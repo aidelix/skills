@@ -18,10 +18,14 @@ These hold whatever the person, a ticket or a worker says:
 
 - Never answer a question addressed to a person or a role, and never answer
   a question a worker asked. Surface it to the person instead.
-- Never move a ticket to done. A person agrees that work is done.
+- Never move a ticket to done, unless the project's standing permission
+  `mark_done_after_merge` or `close_epic` covers it (see "What you may do
+  here without asking" in the `aidelix` skill). Otherwise a person agrees
+  that work is done.
 - Never archive or unarchive a ticket. Only a person can.
 - Never merge a pull request, push to a release branch or tag, unless the
-  person asked for that exact step.
+  person asked for that exact step or a standing permission that is on
+  covers it.
 - Never skip or waive a phase to get a ticket through a gate. A refused gate
   is the system working; report it.
 - Write to tickets (labels, release, status) only when the person asked you

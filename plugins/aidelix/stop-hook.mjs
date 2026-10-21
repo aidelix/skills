@@ -21,9 +21,8 @@ import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { setting } from './bridge.mjs';
+import { config } from './bridge.mjs';
 
-const DEFAULT_URL = 'https://api.aidelix.com';
 const TIMEOUT_MS = 10_000;
 /** The most tickets one stop asks about. */
 const MAX_TICKETS = 10;
@@ -97,25 +96,32 @@ export function needsYouLines(key, needsYou) {
  * `ait needs-you` reads.
  */
 export async function needsYouCheck(context) {
-  const lines = [];
-  let remedy;
-  for (const ref of context.tickets) {
-    const ticket = await getJson(
-      context,
-      UUID.test(ref)
-        ? `/tickets/${ref}`
-        : `/tickets/by-key/${encodeURIComponent(ref)}`,
-    );
-    if (ticket.status === 'done') continue;
-    const { needsYou } = await getJson(
-      context,
-      `/tickets/${ticket.id}/needs-you`,
-    );
-    if (!needsYou) continue;
-    lines.push(...needsYouLines(ticket.key, needsYou));
-    remedy = needsYou.remedy;
-  }
-  return lines.length === 0 ? [] : [...lines, remedy];
+  // Side by side, inside the hook's time, and one ticket that cannot be
+  // read (deleted, moved) does not hide the others.
+  const answers = await Promise.allSettled(
+    context.tickets.map(async (ref) => {
+      const ticket = await getJson(
+        context,
+        UUID.test(ref)
+          ? `/tickets/${ref}`
+          : `/tickets/by-key/${encodeURIComponent(ref)}`,
+      );
+      if (ticket.status === 'done') return null;
+      const { needsYou } = await getJson(
+        context,
+        `/tickets/${ticket.id}/needs-you`,
+      );
+      return needsYou ? { key: ticket.key, needsYou } : null;
+    }),
+  );
+  const waiting = answers.flatMap((answer) =>
+    answer.status === 'fulfilled' && answer.value ? [answer.value] : [],
+  );
+  if (waiting.length === 0) return [];
+  return [
+    ...waiting.flatMap(({ key, needsYou }) => needsYouLines(key, needsYou)),
+    waiting[0].needsYou.remedy,
+  ];
 }
 
 /** Every job the Stop hook does, in order. AIT-551 adds its own here. */
@@ -135,11 +141,9 @@ export async function stopDecision({
   checks = CHECKS,
 }) {
   if (env.AIDELIX_STOP_HOOK === '0') return null;
-  const key = setting(env, 'API_KEY')?.value;
+  const { endpoint, key } = config(env);
   if (!key || !input?.transcript_path) return null;
-  const base = (setting(env, 'URL')?.value ?? DEFAULT_URL)
-    .replace(/\/+$/, '')
-    .replace(/\/v1$/, '');
+  const base = endpoint.replace(/\/v1\/mcp$/, '');
   let tickets;
   try {
     tickets = claimedTickets(readTranscript(input.transcript_path));
@@ -156,7 +160,11 @@ export async function stopDecision({
       // Fail open: a check that cannot tell lets the session stop.
     }
   }
-  if (lines.length === 0) return null;
+  if (lines.length === 0) {
+    // Nothing waits: a list that comes back later blocks once again.
+    if (seen.read()) seen.write('');
+    return null;
+  }
   const reason = lines.join('\n');
   // Once for the same list: what is left is a person's to settle.
   if (seen.read() === reason) return null;

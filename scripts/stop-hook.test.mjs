@@ -102,6 +102,27 @@ describe('Stop hook', () => {
     expect(await decide({ fetch, seen })).toBeNull();
   });
 
+  it('blocks again once a list that cleared comes back', async () => {
+    const seen = memory();
+    expect((await decide({ seen })).decision).toBe('block');
+    expect(
+      await decide({
+        seen,
+        fetch: api({ ticketId: TICKET_ID, needsYou: null }).fetch,
+      }),
+    ).toBeNull();
+    expect((await decide({ seen })).decision).toBe('block');
+  });
+
+  it('still reads the other tickets when one cannot be read', async () => {
+    const transcript = [
+      toolUse('mcp__aidelix__claim_ticket', { ticket: 'AIT-9' }),
+      TRANSCRIPT,
+    ].join('\n');
+    const decision = await decide({ readTranscript: () => transcript });
+    expect(decision.reason).toContain('AIT-575 waits on you:');
+  });
+
   it('lets the session stop when nothing waits, the ticket is done, or the hook is off', async () => {
     expect(
       await decide({

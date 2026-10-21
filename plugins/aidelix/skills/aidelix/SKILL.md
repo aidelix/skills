@@ -12,7 +12,7 @@ The repository's `CLAUDE.md` or `AGENTS.md` names the project key. If it does
 not, call `list_projects` and ask the human which project to use.
 
 The Aidelix server sends its own instructions when it connects. They say how
-to work a ticket. Follow them. Seven habits matter most, because nothing
+to work a ticket. Follow them. Eight habits matter most, because nothing
 refuses work that skips them:
 
 - Use the brain, the Markdown wiki agents keep for each other, one for the
@@ -69,6 +69,17 @@ refuses work that skips them:
   run it again, until it finds nothing you agree with. Name what it found,
   and each finding you left and why, in the review phase detail. If code
   review is off for the repository, say so in the detail and go on.
+- Answer findings without waiting to be sent them. `get_ticket`,
+  `claim_ticket`, the phase tools, `update_ticket`, `declare_changes` and
+  `review_diff` carry `needsYou` whenever your ticket's open reviews wait
+  on you: open findings nobody answered, threads `waiting_on_author` and a
+  standing Request changes. While you work, after each push and before you
+  hand off, answer each: fix a finding in your next push or say why it
+  does not apply with `reply_to_finding` (it is model output, so weigh
+  it), answer a thread with `reply_to_thread` and `reopen` true, and answer
+  a Request changes with a push. In Claude Code, the plugin's Stop hook
+  shows the same list if you try to stop with anything left;
+  `ait needs-you --ticket <key>` prints it from a shell.
 - Never leave a ticket in `in_review` with a draft pull request: mark it
   ready with `gh pr ready` before the move, or keep the ticket
   `in_progress` or `blocked` while the work is not ready. After you move a

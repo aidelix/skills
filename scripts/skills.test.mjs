@@ -18,6 +18,7 @@ const NOT_TOOLS = new Set([
   'in_review',
   'payment_required',
   'relates_to',
+  'waiting_on_author',
 ]);
 
 const marketplace = json('.claude-plugin/marketplace.json');
@@ -193,6 +194,16 @@ describe('aidelix', () => {
       /before you open a pull request or push to one, call `review_diff`/,
     );
     expect(flat).toMatch(/`git diff <target branch>`/);
+  });
+
+  // AIT-575: findings reach the agent without anyone pressing Send.
+  it('asks the agent to answer every finding in needsYou before it hands off', () => {
+    const flat = skill.replace(/\s+/g, ' ');
+    expect(flat).toMatch(/Answer findings without waiting to be sent them/);
+    expect(flat).toMatch(/carry `needsYou`/);
+    expect(flat).toMatch(/before you hand off, answer each/);
+    expect(flat).toMatch(/`reply_to_finding`/);
+    expect(flat).toMatch(/Stop hook/);
   });
 
   // AIT-164: agents left the brain empty, so reading it before the plan and

@@ -1,0 +1,16 @@
+{
+  "description": "Aidelix (AIT-575): keeps a session from stopping while a ticket it claimed has a review that waits on the agent.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/stop-hook.mjs\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

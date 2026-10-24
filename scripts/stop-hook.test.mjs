@@ -221,6 +221,7 @@ describe('Stop hook watch', () => {
       env: ENV,
       readTranscript: () => TRANSCRIPT,
       current: () => true,
+      cursor: memory(),
       sleep: async (ms) => {
         clock += ms;
       },
@@ -241,7 +242,7 @@ describe('Stop hook watch', () => {
     const wake = await watch({ fetch });
     const events = calls.filter((call) => call.url.includes('/events'));
     expect(events.map((call) => call.url)).toEqual([
-      'http://api.test/v1/events?tickets=AIT-575&wait=25',
+      `http://api.test/v1/events?tickets=AIT-575&wait=25&since=${encodeURIComponent('1969-12-31T23:00:00.000Z')}`,
       'http://api.test/v1/events?tickets=AIT-575&wait=25&after=c1',
       'http://api.test/v1/events?tickets=AIT-575&wait=25&after=c2',
     ]);
@@ -262,6 +263,39 @@ describe('Stop hook watch', () => {
     const wake = await watch({ fetch });
     expect(wake).toContain('AIT-575  approved');
     expect(wake).not.toContain('AIT-575 waits on you:');
+  });
+
+  it('goes on from the place a watch before it saved, and saves its own', async () => {
+    const { calls, fetch } = eventsApi([
+      { events: [event('approved', 'c8')], next: 'c8' },
+    ]);
+    const cursor = memory();
+    cursor.write('c7');
+    expect(await watch({ fetch, cursor })).toContain('AIT-575  approved');
+    expect(calls.find((call) => call.url.includes('/events')).url).toBe(
+      'http://api.test/v1/events?tickets=AIT-575&wait=25&after=c7',
+    );
+    expect(cursor.read()).toBe('c8');
+  });
+
+  it('stops on a refusal, and once no ticket is left in review', async () => {
+    const refused = eventsApi([]);
+    const fetch = async (url, init) =>
+      url.includes('/events')
+        ? new Response('{}', { status: 401 })
+        : refused.fetch(url, init);
+    expect(await watch({ fetch })).toBeNull();
+
+    const moved = eventsApi([
+      {
+        events: [
+          event('status_changed', 'c1', { from: 'in_review', to: 'done' }),
+        ],
+        next: 'c1',
+      },
+      { events: [event('approved', 'c2')], next: 'c2' },
+    ]);
+    expect(await watch({ fetch: moved.fetch })).toBeNull();
   });
 
   it('tries again after a failed request', async () => {
@@ -342,6 +376,8 @@ describe('Stop hook watch', () => {
     expect(wakesAgent(event('approved'))).toBe(true);
     expect(wakesAgent(event('review_thread_waiting'))).toBe(true);
     expect(wakesAgent(event('question_answered'))).toBe(true);
+    expect(wakesAgent(event('question_asked'))).toBe(true);
+    expect(wakesAgent(event('pr_merged'))).toBe(true);
     expect(wakesAgent(event('rejected'))).toBe(true);
     expect(wakesAgent(event('ci_finished', 'c', { result: 'passing' }))).toBe(
       false,

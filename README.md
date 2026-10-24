@@ -100,9 +100,12 @@ After the session stops, the same hook keeps watching in the background
 (`stop-hook.mjs --watch`, a Claude Code `asyncRewake` hook). While a ticket
 the session claimed is in review, it waits on Aidelix for an approval or for
 an act that needs the agent (a Request changes, a finding or thread sent, a
-rejection, a question answered, CI failing), and then wakes the session with
-the event, so the agent merges or answers without anyone starting it again.
-It watches for 8 hours after each stop; set `AIDELIX_STOP_HOOK_WATCH_HOURS`
+rejection, a question asked or answered, CI failing, a merge), and then
+wakes the session with the event, so the agent merges or answers without
+anyone starting it again. A session's first watch looks an hour back, so an
+approval between the move to in review and the stop is not lost, and later
+watches go on from where the last one stopped. It watches for 8 hours after
+each stop; set `AIDELIX_STOP_HOOK_WATCH_HOURS`
 to change that, or to `0` to turn the watch off. Outside Claude Code,
 `ait watch <ticket> --until approved,needs-me` waits for the same events.
 

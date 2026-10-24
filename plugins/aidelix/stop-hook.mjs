@@ -10,8 +10,9 @@
 // Run with --watch (AIT-551), the same hook waits in the background after
 // the session stops: while a ticket the session claimed is in review, it
 // long-polls Aidelix for an act that needs the agent (a Request changes, a
-// finding or thread sent, a rejection, an answered question, CI failing) or
-// an approval, and then wakes the session with the event and the same
+// finding or thread sent, a rejection, a question asked or answered, CI
+// failing, a merge) or an approval, and then wakes the session with the
+// event and the same
 // CHECKS. Claude Code starts it with `asyncRewake`, which wakes the session
 // when it exits 2. It waits AIDELIX_STOP_HOOK_WATCH_HOURS (8 by default; 0
 // turns the watch off), and a newer stop of the same session takes over
@@ -40,6 +41,8 @@ const EVENT_WAIT_SECONDS = 25;
 const WATCH_HOURS = 8;
 /** How long the watch rests after a failed request. */
 const RETRY_MS = 30_000;
+/** How far back a session's first watch looks, for what came before it. */
+const LOOKBACK_MS = 60 * 60_000;
 /** The most tickets one stop asks about. */
 const MAX_TICKETS = 10;
 
@@ -85,7 +88,11 @@ async function getJson({ base, key, fetch }, path, timeoutMs = TIMEOUT_MS) {
     headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!res.ok) throw new Error(`${path} answered ${res.status}`);
+  if (!res.ok) {
+    throw Object.assign(new Error(`${path} answered ${res.status}`), {
+      status: res.status,
+    });
+  }
   return res.json();
 }
 
@@ -161,7 +168,9 @@ export function wakesAgent(event) {
     event.kind === 'review_requested_changes' ||
     event.kind === 'review_thread_waiting' ||
     event.kind === 'rejected' ||
+    event.kind === 'question_asked' ||
     event.kind === 'question_answered' ||
+    event.kind === 'pr_merged' ||
     (event.kind === 'ci_finished' && event.detail?.result === 'failing')
   );
 }
@@ -183,7 +192,10 @@ function eventLine(event) {
  * null to let it rest. It keys on the claimed tickets that are in review,
  * waits on them through `GET /v1/events` until an event in `wakesAgent`
  * arrives, then adds what CHECKS say. `current()` is false once a newer
- * stop of the session took over the watch.
+ * stop of the session took over the watch. `cursor` keeps the session's
+ * place in the events across watches, so a handover or a wake loses
+ * nothing; a session's first watch starts an hour back, since an approval
+ * or red CI can come between the move to in_review and the stop.
  */
 export async function watchDecision({
   input,
@@ -191,6 +203,7 @@ export async function watchDecision({
   fetch,
   readTranscript,
   current,
+  cursor,
   sleep,
   now = Date.now,
   checks = CHECKS,
@@ -218,21 +231,21 @@ export async function watchDecision({
       ),
     ),
   );
-  const tickets = reads.flatMap((read) =>
+  let tickets = reads.flatMap((read) =>
     read.status === 'fulfilled' && read.value?.status === 'in_review'
       ? [read.value.key]
       : [],
   );
   if (tickets.length === 0) return null;
-  // With no cursor the API starts from now: what came before the stop,
-  // the session already saw.
-  let after;
+  let after = cursor.read() || undefined;
+  const since = new Date(now() - LOOKBACK_MS).toISOString();
   while (current() && now() < deadline) {
     const params = new URLSearchParams({
       tickets: tickets.join(','),
       wait: String(EVENT_WAIT_SECONDS),
     });
     if (after !== undefined) params.set('after', after);
+    else params.set('since', since);
     let page;
     const asked = now();
     try {
@@ -241,20 +254,38 @@ export async function watchDecision({
         `/events?${params.toString()}`,
         (EVENT_WAIT_SECONDS + 15) * 1000,
       );
-    } catch {
+    } catch (err) {
+      // A refusal (a revoked key, a ticket gone) will not get better.
+      if (err.status >= 400 && err.status < 500 && err.status !== 429) {
+        return null;
+      }
       await sleep(RETRY_MS);
       continue;
     }
+    // A newer stop may have taken over while the request waited: it goes
+    // on from the saved place, so these events are its own.
+    if (!current()) return null;
     after = page.next;
+    cursor.write(after);
     const events = page.events.filter(wakesAgent);
     if (events.length === 0) {
+      // A ticket a person moved out of review no longer waits on them.
+      const left = new Set(
+        page.events
+          .filter(
+            (event) =>
+              event.kind === 'status_changed' &&
+              event.detail?.to !== 'in_review',
+          )
+          .map((event) => event.ticket),
+      );
+      tickets = tickets.filter((key) => !left.has(key));
+      if (tickets.length === 0) return null;
       // An empty answer long before its wait (a server shutting down)
       // must not become a tight loop.
       if (now() - asked < (EVENT_WAIT_SECONDS * 1000) / 2) await sleep(1000);
       continue;
     }
-    // A newer stop may have taken over while the request waited.
-    if (!current()) return null;
     const lines = [];
     for (const check of checks) {
       try {
@@ -266,7 +297,8 @@ export async function watchDecision({
     return [
       'Aidelix: a person acted on a ticket you handed off. Call get_ticket ' +
         'for it and do what it needs: merge an approved review if your ' +
-        'instructions say so, or answer what waits on you.',
+        'instructions say so, move a merged one to done, or answer what ' +
+        'waits on you.',
       ...events.map(eventLine),
       ...lines,
     ].join('\n');
@@ -364,6 +396,7 @@ if (main && import.meta.url === main.href) {
     const readTranscript = (path) => readFileSync(path, 'utf8');
     if (process.argv.includes('--watch')) {
       const file = sessionFile('watch', input.session_id);
+      const place = sessionFile('cursor', input.session_id);
       const token = randomUUID();
       writeQuietly(file, token);
       const wake = await watchDecision({
@@ -373,6 +406,10 @@ if (main && import.meta.url === main.href) {
         readTranscript,
         // Without the file, the watch runs to its deadline.
         current: () => (readOrNull(file) ?? token) === token,
+        cursor: {
+          read: () => readOrNull(place),
+          write: (text) => writeQuietly(place, text),
+        },
         sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
       });
       if (wake) {

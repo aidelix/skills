@@ -176,8 +176,20 @@ When nothing changed, say that in one line.
 When the person asks you to change tickets rather than work them:
 
 - Put a ticket in a release: `list_releases`, then `update_ticket` with
-  `changes.releaseId`. No tool creates a release; a person does, on the
-  board.
+  `changes.releaseId`. When the person you act for is an owner or an admin,
+  `create_release` adds a release and `update_release` renames it.
+- Ship a release through Stage then Launch, never through a release pull
+  request. Once every ticket of the release is merged into develop with its
+  checks green, `stage_release` cuts `release/<name>` from develop in every
+  git-flow repository with automatic release on; commit the version bump
+  the project asks for on that branch, and try the release the way the
+  brain says. Read `get_release_git`, then hand the person the project's
+  Releases page and the click on Launch, naming every repository it
+  releases. Launch merges into main, tags, merges main back into develop
+  and marks the release shipped, so never hand a person tag or back-merge
+  commands. Once they have launched, read `get_release_git` until every
+  repository shows launched, check production is healthy the way the brain
+  says, and report any repository whose launch or health check failed.
 - Label tickets: `set_labels` with the whole new set, keeping the labels the
   ticket has. No tool creates a label.
 - Move a ticket into an epic: `update_ticket` with `changes.parentTicketId`.

@@ -26,7 +26,13 @@
 //
 // No dependencies: it runs on Node 18 or later.
 
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,6 +48,10 @@ const WATCH_HOURS = 8;
 const RETRY_MS = 30_000;
 /** How far back a session's first watch looks, for what came before it. */
 const LOOKBACK_MS = 60 * 60_000;
+/** How many times the watch reads its tickets before it gives up. */
+const STARTUP_TRIES = 4;
+/** The event detail fields the wake-up names: ids, counts and states. */
+const DETAIL_KEYS = ['result', 'from', 'to', 'threads', 'pullRequest'];
 /** The most tickets one stop asks about. */
 const MAX_TICKETS = 10;
 
@@ -179,11 +189,29 @@ function eventLine(event) {
   return [
     event.ticket,
     event.kind,
-    ...Object.entries(event.detail ?? {}).map(
-      ([name, value]) => `${name}=${String(value)}`,
+    ...DETAIL_KEYS.filter((name) => event.detail?.[name] != null).map(
+      (name) => `${name}=${String(event.detail[name]).slice(0, 40)}`,
     ),
-    ...(event.subjectId ? [event.subjectId] : []),
+    ...(UUID.test(String(event.subjectId)) ? [event.subjectId] : []),
   ].join('  ');
+}
+
+/** A refusal that asking again will not change: a 4xx other than 429. */
+function refused(err) {
+  return err?.status >= 400 && err.status < 500 && err.status !== 429;
+}
+
+/** The saved place in the events and the tickets it covers, or null. */
+function parsePlace(text) {
+  try {
+    const place = JSON.parse(text);
+    if (typeof place?.after === 'string' && Array.isArray(place.tickets)) {
+      return place;
+    }
+  } catch {
+    // Not a place this hook wrote.
+  }
+  return null;
 }
 
 /**
@@ -219,24 +247,42 @@ export async function watchDecision({
     return null;
   }
   const context = { ...conn, fetch, tickets: claimed };
-  // Only a ticket the agent handed off waits for a person's act.
-  const reads = await Promise.allSettled(
-    claimed.map((ref) =>
-      getJson(
-        context,
-        UUID.test(ref)
-          ? `/tickets/${ref}`
-          : `/tickets/by-key/${encodeURIComponent(ref)}`,
+  // Only a ticket the agent handed off waits for a person's act. A read
+  // that failed for a passing reason (the network, a deploy) is tried
+  // again; a refusal (a ticket gone) drops that ticket.
+  let tickets = [];
+  let unread = claimed;
+  for (let tries = 0; unread.length > 0 && tries < STARTUP_TRIES; tries++) {
+    if (tries > 0) await sleep(RETRY_MS);
+    const reads = await Promise.allSettled(
+      unread.map((ref) =>
+        getJson(
+          context,
+          UUID.test(ref)
+            ? `/tickets/${ref}`
+            : `/tickets/by-key/${encodeURIComponent(ref)}`,
+        ),
       ),
-    ),
-  );
-  let tickets = reads.flatMap((read) =>
-    read.status === 'fulfilled' && read.value?.status === 'in_review'
-      ? [read.value.key]
-      : [],
-  );
+    );
+    const again = [];
+    reads.forEach((read, at) => {
+      if (read.status === 'fulfilled') {
+        if (read.value?.status === 'in_review') tickets.push(read.value.key);
+      } else if (!refused(read.reason)) {
+        again.push(unread[at]);
+      }
+    });
+    unread = again;
+  }
   if (tickets.length === 0) return null;
-  let after = cursor.read() || undefined;
+  // The saved place covers the tickets it was saved for: a ticket handed
+  // off since then starts the watch an hour back, so an earlier watch
+  // that read past its events loses nothing.
+  const saved = parsePlace(cursor.read());
+  let after =
+    saved && tickets.every((key) => saved.tickets.includes(key))
+      ? saved.after
+      : undefined;
   const since = new Date(now() - LOOKBACK_MS).toISOString();
   while (current() && now() < deadline) {
     const params = new URLSearchParams({
@@ -261,9 +307,7 @@ export async function watchDecision({
         continue;
       }
       // A refusal (a revoked key, a ticket gone) will not get better.
-      if (err.status >= 400 && err.status < 500 && err.status !== 429) {
-        return null;
-      }
+      if (refused(err)) return null;
       await sleep(RETRY_MS);
       continue;
     }
@@ -271,7 +315,7 @@ export async function watchDecision({
     // on from the saved place, so these events are its own.
     if (!current()) return null;
     after = page.next;
-    cursor.write(after);
+    cursor.write(JSON.stringify({ after, tickets }));
     const events = page.events.filter(wakesAgent);
     if (events.length === 0) {
       // A ticket a person moved out of review no longer waits on them.
@@ -374,11 +418,38 @@ export async function stopDecision({
 /** Where the hook keeps `what` for a session: its last list, its watch. */
 function sessionFile(what, sessionId) {
   const safe = String(sessionId ?? 'session').replace(/[^A-Za-z0-9_-]/g, '');
-  return join(tmpdir(), `aidelix-${what}-${safe || 'session'}.txt`);
+  const dir = privateDir();
+  return dir && join(dir, `${what}-${safe || 'session'}.txt`);
+}
+
+/**
+ * A directory in tmpdir only this user can use, or null: on a shared
+ * machine a name planted there (a symlink, another user's directory) is
+ * never written through.
+ */
+function privateDir() {
+  const uid = process.getuid?.();
+  const dir = join(tmpdir(), `aidelix-${uid ?? 'user'}`);
+  try {
+    mkdirSync(dir, { mode: 0o700 });
+  } catch {
+    // It may be there already: checked below.
+  }
+  try {
+    const stat = lstatSync(dir);
+    if (!stat.isDirectory() || (uid !== undefined && stat.uid !== uid)) {
+      return null;
+    }
+    if ((stat.mode & 0o077) !== 0) return null;
+    return dir;
+  } catch {
+    return null;
+  }
 }
 
 /** Reads a file, or null. */
 function readOrNull(file) {
+  if (!file) return null;
   try {
     return readFileSync(file, 'utf8');
   } catch {
@@ -388,6 +459,7 @@ function readOrNull(file) {
 
 /** Writes a file only its owner reads; a failure is no harm. */
 function writeQuietly(file, text) {
+  if (!file) return;
   try {
     writeFileSync(file, text, { mode: 0o600 });
   } catch {

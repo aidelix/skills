@@ -5,8 +5,17 @@
 // ticket the agent claimed in this session still waits on it, and if so
 // keeps the session going with the list as the reason. Each job the hook
 // does is one check in `CHECKS`: a check takes the context and returns the
-// lines that should keep the session going, or none. AIT-551 adds its
-// check here rather than a second hook.
+// lines that should keep the session going, or none.
+//
+// Run with --watch (AIT-551), the same hook waits in the background after
+// the session stops: while a ticket the session claimed is in review, it
+// long-polls Aidelix for an act that needs the agent (a Request changes, a
+// finding or thread sent, a rejection, an answered question, CI failing) or
+// an approval, and then wakes the session with the event and the same
+// CHECKS. Claude Code starts it with `asyncRewake`, which wakes the session
+// when it exits 2. It waits AIDELIX_STOP_HOOK_WATCH_HOURS (8 by default; 0
+// turns the watch off), and a newer stop of the same session takes over
+// from it.
 //
 // It fails open: a missing key, a refused or failed request, or a
 // transcript it cannot read lets the session stop, so a hook problem never
@@ -18,12 +27,19 @@
 // No dependencies: it runs on Node 18 or later.
 
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { config } from './bridge.mjs';
 
 const TIMEOUT_MS = 10_000;
+/** The longest the API holds a request for events (AIT-169). */
+const EVENT_WAIT_SECONDS = 25;
+/** How long the watch waits after a stop, unless the environment says. */
+const WATCH_HOURS = 8;
+/** How long the watch rests after a failed request. */
+const RETRY_MS = 30_000;
 /** The most tickets one stop asks about. */
 const MAX_TICKETS = 10;
 
@@ -64,10 +80,10 @@ export function claimedTickets(transcript) {
 }
 
 /** GET a path of the API as JSON, or throw. */
-async function getJson({ base, key, fetch }, path) {
+async function getJson({ base, key, fetch }, path, timeoutMs = TIMEOUT_MS) {
   const res = await fetch(`${base}/v1${path}`, {
     headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`${path} answered ${res.status}`);
   return res.json();
@@ -124,8 +140,139 @@ export async function needsYouCheck(context) {
   ];
 }
 
-/** Every job the Stop hook does, in order. AIT-551 adds its own here. */
+/** Every job the Stop hook does, in order. */
 export const CHECKS = [needsYouCheck];
+
+/** The API base and key, or null when the hook is off or has no key. */
+function connection(env) {
+  if (env.AIDELIX_STOP_HOOK === '0') return null;
+  const { endpoint, key } = config(env);
+  if (!key) return null;
+  return { base: endpoint.replace(/\/v1\/mcp$/, ''), key };
+}
+
+/**
+ * The events the watch wakes the session for, as `ait watch --until
+ * approved,needs-me` reads them.
+ */
+export function wakesAgent(event) {
+  return (
+    event.kind === 'approved' ||
+    event.kind === 'review_requested_changes' ||
+    event.kind === 'review_thread_waiting' ||
+    event.kind === 'rejected' ||
+    event.kind === 'question_answered' ||
+    (event.kind === 'ci_finished' && event.detail?.result === 'failing')
+  );
+}
+
+/** One line for an event: names and ids, never text a person wrote. */
+function eventLine(event) {
+  return [
+    event.ticket,
+    event.kind,
+    ...Object.entries(event.detail ?? {}).map(
+      ([name, value]) => `${name}=${String(value)}`,
+    ),
+    ...(event.subjectId ? [event.subjectId] : []),
+  ].join('  ');
+}
+
+/**
+ * The watch after a stop (AIT-551): the message that wakes the session, or
+ * null to let it rest. It keys on the claimed tickets that are in review,
+ * waits on them through `GET /v1/events` until an event in `wakesAgent`
+ * arrives, then adds what CHECKS say. `current()` is false once a newer
+ * stop of the session took over the watch.
+ */
+export async function watchDecision({
+  input,
+  env,
+  fetch,
+  readTranscript,
+  current,
+  sleep,
+  now = Date.now,
+  checks = CHECKS,
+}) {
+  const conn = connection(env);
+  if (!conn || !input?.transcript_path) return null;
+  const hours = Number(env.AIDELIX_STOP_HOOK_WATCH_HOURS ?? WATCH_HOURS);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  const deadline = now() + hours * 3_600_000;
+  let claimed;
+  try {
+    claimed = claimedTickets(readTranscript(input.transcript_path));
+  } catch {
+    return null;
+  }
+  const context = { ...conn, fetch, tickets: claimed };
+  // Only a ticket the agent handed off waits for a person's act.
+  const reads = await Promise.allSettled(
+    claimed.map((ref) =>
+      getJson(
+        context,
+        UUID.test(ref)
+          ? `/tickets/${ref}`
+          : `/tickets/by-key/${encodeURIComponent(ref)}`,
+      ),
+    ),
+  );
+  const tickets = reads.flatMap((read) =>
+    read.status === 'fulfilled' && read.value?.status === 'in_review'
+      ? [read.value.key]
+      : [],
+  );
+  if (tickets.length === 0) return null;
+  // With no cursor the API starts from now: what came before the stop,
+  // the session already saw.
+  let after;
+  while (current() && now() < deadline) {
+    const params = new URLSearchParams({
+      tickets: tickets.join(','),
+      wait: String(EVENT_WAIT_SECONDS),
+    });
+    if (after !== undefined) params.set('after', after);
+    let page;
+    const asked = now();
+    try {
+      page = await getJson(
+        context,
+        `/events?${params.toString()}`,
+        (EVENT_WAIT_SECONDS + 15) * 1000,
+      );
+    } catch {
+      await sleep(RETRY_MS);
+      continue;
+    }
+    after = page.next;
+    const events = page.events.filter(wakesAgent);
+    if (events.length === 0) {
+      // An empty answer long before its wait (a server shutting down)
+      // must not become a tight loop.
+      if (now() - asked < (EVENT_WAIT_SECONDS * 1000) / 2) await sleep(1000);
+      continue;
+    }
+    // A newer stop may have taken over while the request waited.
+    if (!current()) return null;
+    const lines = [];
+    for (const check of checks) {
+      try {
+        lines.push(...(await check({ ...context, tickets })));
+      } catch {
+        // The event alone is enough to wake the session.
+      }
+    }
+    return [
+      'Aidelix: a person acted on a ticket you handed off. Call get_ticket ' +
+        'for it and do what it needs: merge an approved review if your ' +
+        'instructions say so, or answer what waits on you.',
+      ...events.map(eventLine),
+      ...lines,
+    ].join('\n');
+  }
+  return null;
+}
 
 /**
  * What the hook answers for one Stop: `{ decision: 'block', reason }` to
@@ -140,10 +287,8 @@ export async function stopDecision({
   seen,
   checks = CHECKS,
 }) {
-  if (env.AIDELIX_STOP_HOOK === '0') return null;
-  const { endpoint, key } = config(env);
-  if (!key || !input?.transcript_path) return null;
-  const base = endpoint.replace(/\/v1\/mcp$/, '');
+  const conn = connection(env);
+  if (!conn || !input?.transcript_path) return null;
   let tickets;
   try {
     tickets = claimedTickets(readTranscript(input.transcript_path));
@@ -151,7 +296,7 @@ export async function stopDecision({
     return null;
   }
   if (tickets.length === 0) return null;
-  const context = { base, key, fetch, tickets };
+  const context = { ...conn, fetch, tickets };
   const lines = [];
   for (const check of checks) {
     try {
@@ -177,13 +322,33 @@ export async function stopDecision({
   };
 }
 
-/** Where the list a session last blocked on is kept. */
-function seenFile(sessionId) {
+/** Where the hook keeps `what` for a session: its last list, its watch. */
+function sessionFile(what, sessionId) {
   const safe = String(sessionId ?? 'session').replace(/[^A-Za-z0-9_-]/g, '');
-  return join(tmpdir(), `aidelix-stop-${safe || 'session'}.txt`);
+  return join(tmpdir(), `aidelix-${what}-${safe || 'session'}.txt`);
 }
 
-// Run as a program: the Stop event's JSON on stdin, the decision on stdout.
+/** Reads a file, or null. */
+function readOrNull(file) {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** Writes a file only its owner reads; a failure is no harm. */
+function writeQuietly(file, text) {
+  try {
+    writeFileSync(file, text, { mode: 0o600 });
+  } catch {
+    // Without the file the hook does a little more work, never less.
+  }
+}
+
+// Run as a program: the Stop event's JSON on stdin. The Stop hook writes
+// its decision on stdout; with --watch it writes the wake-up on stderr and
+// exits 2, which `asyncRewake` hands the session.
 const main = process.argv[1] && pathToFileURL(realpathSync(process.argv[1]));
 if (main && import.meta.url === main.href) {
   let raw = '';
@@ -196,27 +361,35 @@ if (main && import.meta.url === main.href) {
     } catch {
       return;
     }
-    const file = seenFile(input.session_id);
+    const readTranscript = (path) => readFileSync(path, 'utf8');
+    if (process.argv.includes('--watch')) {
+      const file = sessionFile('watch', input.session_id);
+      const token = randomUUID();
+      writeQuietly(file, token);
+      const wake = await watchDecision({
+        input,
+        env: process.env,
+        fetch: globalThis.fetch,
+        readTranscript,
+        // Without the file, the watch runs to its deadline.
+        current: () => (readOrNull(file) ?? token) === token,
+        sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+      });
+      if (wake) {
+        process.stderr.write(`${wake}\n`);
+        process.exit(2);
+      }
+      return;
+    }
+    const file = sessionFile('stop', input.session_id);
     const decision = await stopDecision({
       input,
       env: process.env,
       fetch: globalThis.fetch,
-      readTranscript: (path) => readFileSync(path, 'utf8'),
+      readTranscript,
       seen: {
-        read: () => {
-          try {
-            return readFileSync(file, 'utf8');
-          } catch {
-            return null;
-          }
-        },
-        write: (text) => {
-          try {
-            writeFileSync(file, text, { mode: 0o600 });
-          } catch {
-            // Without the file the next stop may block once more; no harm.
-          }
-        },
+        read: () => readOrNull(file),
+        write: (text) => writeQuietly(file, text),
       },
     });
     if (decision) process.stdout.write(`${JSON.stringify(decision)}\n`);

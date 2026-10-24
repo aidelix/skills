@@ -1,5 +1,5 @@
 {
-  "description": "Aidelix (AIT-575): keeps a session from stopping while a ticket it claimed has a review that waits on the agent.",
+  "description": "Aidelix (AIT-575, AIT-551): keeps a session from stopping while a ticket it claimed has a review that waits on the agent, and after it stops, wakes it when a person acts on a ticket it handed off.",
   "hooks": {
     "Stop": [
       {
@@ -8,6 +8,11 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/stop-hook.mjs\"",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/stop-hook.mjs\" --watch",
+            "asyncRewake": true
           }
         ]
       }

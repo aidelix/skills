@@ -255,6 +255,12 @@ export async function watchDecision({
         (EVENT_WAIT_SECONDS + 15) * 1000,
       );
     } catch (err) {
+      // A saved place the API no longer reads: start again from since.
+      if (err.status === 400 && after !== undefined) {
+        after = undefined;
+        cursor.write('');
+        continue;
+      }
       // A refusal (a revoked key, a ticket gone) will not get better.
       if (err.status >= 400 && err.status < 500 && err.status !== 429) {
         return null;
@@ -270,7 +276,8 @@ export async function watchDecision({
     const events = page.events.filter(wakesAgent);
     if (events.length === 0) {
       // A ticket a person moved out of review no longer waits on them.
-      const left = new Set(
+      // The move may be an old one read again, so ask where it is now.
+      const moved = new Set(
         page.events
           .filter(
             (event) =>
@@ -279,7 +286,18 @@ export async function watchDecision({
           )
           .map((event) => event.ticket),
       );
-      tickets = tickets.filter((key) => !left.has(key));
+      for (const key of moved) {
+        try {
+          const ticket = await getJson(
+            context,
+            `/tickets/by-key/${encodeURIComponent(key)}`,
+          );
+          if (ticket.status === 'in_review') continue;
+        } catch {
+          continue;
+        }
+        tickets = tickets.filter((one) => one !== key);
+      }
       if (tickets.length === 0) return null;
       // An empty answer long before its wait (a server shutting down)
       // must not become a tight loop.

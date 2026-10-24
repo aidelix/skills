@@ -295,7 +295,45 @@ describe('Stop hook watch', () => {
       },
       { events: [event('approved', 'c2')], next: 'c2' },
     ]);
-    expect(await watch({ fetch: moved.fetch })).toBeNull();
+    // In review when the watch starts, done when it asks again.
+    let reads = 0;
+    const movedFetch = async (url, init) =>
+      url.includes('/by-key/') && ++reads > 1
+        ? Response.json({ id: TICKET_ID, key: 'AIT-575', status: 'done' })
+        : moved.fetch(url, init);
+    expect(await watch({ fetch: movedFetch })).toBeNull();
+
+    // An old move read again: the ticket is in review now, so it stays.
+    const back = eventsApi(
+      [
+        {
+          events: [
+            event('status_changed', 'c1', {
+              from: 'in_review',
+              to: 'in_progress',
+            }),
+          ],
+          next: 'c1',
+        },
+        { events: [event('approved', 'c2')], next: 'c2' },
+      ],
+      { status: 'in_review' },
+    );
+    expect(await watch({ fetch: back.fetch })).toContain('AIT-575  approved');
+  });
+
+  it('starts again from since when the API refuses the saved place', async () => {
+    const { calls, fetch } = eventsApi([
+      { events: [event('approved', 'c2')], next: 'c2' },
+    ]);
+    const refusing = async (url, init) =>
+      url.includes('after=stale')
+        ? new Response('{}', { status: 400 })
+        : fetch(url, init);
+    const cursor = memory();
+    cursor.write('stale');
+    expect(await watch({ fetch: refusing, cursor })).toContain('approved');
+    expect(calls.some((call) => call.url.includes('since='))).toBe(true);
   });
 
   it('tries again after a failed request', async () => {

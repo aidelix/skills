@@ -12,11 +12,10 @@
 // long-polls Aidelix for an act that needs the agent (a Request changes, a
 // finding or thread sent, a rejection, a question asked or answered, CI
 // failing, a merge) or an approval, and then wakes the session with the
-// event and the same
-// CHECKS. Claude Code starts it with `asyncRewake`, which wakes the session
-// when it exits 2. It waits AIDELIX_STOP_HOOK_WATCH_HOURS (8 by default; 0
-// turns the watch off), and a newer stop of the same session takes over
-// from it.
+// event and the same CHECKS. Claude Code starts it with `asyncRewake`,
+// which wakes the session when it exits 2. It waits
+// AIDELIX_STOP_HOOK_WATCH_HOURS (8 by default; 0 turns the watch off), and
+// a newer stop of the same session takes over from it.
 //
 // It fails open: a missing key, a refused or failed request, or a
 // transcript it cannot read lets the session stop, so a hook problem never

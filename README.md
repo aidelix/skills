@@ -87,6 +87,15 @@ There, the agent runs `ait watch` in the background, or calls
 `list_ticket_events` with `wait`. Set `AIDELIX_CHANNEL=0` to turn the
 waiting off.
 
+The plugin also has a Claude Code Stop hook (`hooks/hooks.json`,
+`stop-hook.mjs`). When the agent tries to stop while a ticket it claimed in
+the session has a review waiting on it (an open finding nobody answered, a
+thread waiting on the author, or a Request changes that stands), the hook
+keeps the session going and hands the agent the list, so it answers the
+findings without anyone pressing Send. It blocks once for the same list and
+lets the session stop if Aidelix cannot be reached. It works in cloud
+sessions too. Set `AIDELIX_STOP_HOOK=0` to turn it off.
+
 ## Other agents
 
 Each skill is a folder with a `SKILL.md` in `plugins/aidelix/skills/`, in
@@ -99,7 +108,7 @@ your agent's skills directory (for example `.agents/skills/` or
 
 ```sh
 npm install
-npm test             # manifests, skills, and the plugin's bridge
+npm test             # manifests, skills, the bridge and the Stop hook
 npm run check:tools  # the pinned tool list against a live server (needs a key)
 ```
 

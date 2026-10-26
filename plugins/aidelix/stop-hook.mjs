@@ -5,8 +5,17 @@
 // ticket the agent claimed in this session still waits on it, and if so
 // keeps the session going with the list as the reason. Each job the hook
 // does is one check in `CHECKS`: a check takes the context and returns the
-// lines that should keep the session going, or none. AIT-551 adds its
-// check here rather than a second hook.
+// lines that should keep the session going, or none.
+//
+// Run with --watch (AIT-551), the same hook waits in the background after
+// the session stops: while a ticket the session claimed is in review, it
+// long-polls Aidelix for an act that needs the agent (a Request changes, a
+// finding or thread sent, a rejection, a question asked or answered, CI
+// failing, a merge) or an approval, and then wakes the session with the
+// event and the same CHECKS. Claude Code starts it with `asyncRewake`,
+// which wakes the session when it exits 2. It waits
+// AIDELIX_STOP_HOOK_WATCH_HOURS (8 by default; 0 turns the watch off), and
+// a newer stop of the same session takes over from it.
 //
 // It fails open: a missing key, a refused or failed request, or a
 // transcript it cannot read lets the session stop, so a hook problem never
@@ -17,13 +26,32 @@
 //
 // No dependencies: it runs on Node 18 or later.
 
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { config } from './bridge.mjs';
 
 const TIMEOUT_MS = 10_000;
+/** The longest the API holds a request for events (AIT-169). */
+const EVENT_WAIT_SECONDS = 25;
+/** How long the watch waits after a stop, unless the environment says. */
+const WATCH_HOURS = 8;
+/** How long the watch rests after a failed request. */
+const RETRY_MS = 30_000;
+/** How far back a session's first watch looks, for what came before it. */
+const LOOKBACK_MS = 60 * 60_000;
+/** How many times the watch reads its tickets before it gives up. */
+const STARTUP_TRIES = 4;
+/** The event detail fields the wake-up names: ids, counts and states. */
+const DETAIL_KEYS = ['result', 'from', 'to', 'threads', 'pullRequest'];
 /** The most tickets one stop asks about. */
 const MAX_TICKETS = 10;
 
@@ -64,12 +92,16 @@ export function claimedTickets(transcript) {
 }
 
 /** GET a path of the API as JSON, or throw. */
-async function getJson({ base, key, fetch }, path) {
+async function getJson({ base, key, fetch }, path, timeoutMs = TIMEOUT_MS) {
   const res = await fetch(`${base}/v1${path}`, {
     headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!res.ok) throw new Error(`${path} answered ${res.status}`);
+  if (!res.ok) {
+    throw Object.assign(new Error(`${path} answered ${res.status}`), {
+      status: res.status,
+    });
+  }
   return res.json();
 }
 
@@ -124,8 +156,216 @@ export async function needsYouCheck(context) {
   ];
 }
 
-/** Every job the Stop hook does, in order. AIT-551 adds its own here. */
+/** Every job the Stop hook does, in order. */
 export const CHECKS = [needsYouCheck];
+
+/** The API base and key, or null when the hook is off or has no key. */
+function connection(env) {
+  if (env.AIDELIX_STOP_HOOK === '0') return null;
+  const { endpoint, key } = config(env);
+  if (!key) return null;
+  return { base: endpoint.replace(/\/v1\/mcp$/, ''), key };
+}
+
+/**
+ * The events the watch wakes the session for, as `ait watch --until
+ * approved,needs-me` reads them.
+ */
+export function wakesAgent(event) {
+  return (
+    event.kind === 'approved' ||
+    event.kind === 'review_requested_changes' ||
+    event.kind === 'review_thread_waiting' ||
+    event.kind === 'rejected' ||
+    event.kind === 'question_asked' ||
+    event.kind === 'question_answered' ||
+    event.kind === 'pr_merged' ||
+    (event.kind === 'ci_finished' && event.detail?.result === 'failing')
+  );
+}
+
+/** One line for an event: names and ids, never text a person wrote. */
+function eventLine(event) {
+  return [
+    event.ticket,
+    event.kind,
+    ...DETAIL_KEYS.filter((name) => event.detail?.[name] != null).map(
+      (name) => `${name}=${String(event.detail[name]).slice(0, 40)}`,
+    ),
+    ...(UUID.test(String(event.subjectId)) ? [event.subjectId] : []),
+  ].join('  ');
+}
+
+/** A refusal that asking again will not change: a 4xx other than 429. */
+function refused(err) {
+  return err?.status >= 400 && err.status < 500 && err.status !== 429;
+}
+
+/** The saved place in the events and the tickets it covers, or null. */
+function parsePlace(text) {
+  try {
+    const place = JSON.parse(text);
+    if (typeof place?.after === 'string' && Array.isArray(place.tickets)) {
+      return place;
+    }
+  } catch {
+    // Not a place this hook wrote.
+  }
+  return null;
+}
+
+/**
+ * The watch after a stop (AIT-551): the message that wakes the session, or
+ * null to let it rest. It keys on the claimed tickets that are in review,
+ * waits on them through `GET /v1/events` until an event in `wakesAgent`
+ * arrives, then adds what CHECKS say. `current()` is false once a newer
+ * stop of the session took over the watch. `cursor` keeps the session's
+ * place in the events across watches, so a handover or a wake loses
+ * nothing; a session's first watch starts an hour back, since an approval
+ * or red CI can come between the move to in_review and the stop.
+ */
+export async function watchDecision({
+  input,
+  env,
+  fetch,
+  readTranscript,
+  current,
+  cursor,
+  sleep,
+  now = Date.now,
+  checks = CHECKS,
+}) {
+  const conn = connection(env);
+  if (!conn || !input?.transcript_path) return null;
+  const hours = Number(env.AIDELIX_STOP_HOOK_WATCH_HOURS ?? WATCH_HOURS);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  const deadline = now() + hours * 3_600_000;
+  let claimed;
+  try {
+    claimed = claimedTickets(readTranscript(input.transcript_path));
+  } catch {
+    return null;
+  }
+  const context = { ...conn, fetch, tickets: claimed };
+  // Only a ticket the agent handed off waits for a person's act. A read
+  // that failed for a passing reason (the network, a deploy) is tried
+  // again; a refusal (a ticket gone) drops that ticket.
+  let tickets = [];
+  let unread = claimed;
+  for (let tries = 0; unread.length > 0 && tries < STARTUP_TRIES; tries++) {
+    if (tries > 0) await sleep(RETRY_MS);
+    const reads = await Promise.allSettled(
+      unread.map((ref) =>
+        getJson(
+          context,
+          UUID.test(ref)
+            ? `/tickets/${ref}`
+            : `/tickets/by-key/${encodeURIComponent(ref)}`,
+        ),
+      ),
+    );
+    const again = [];
+    reads.forEach((read, at) => {
+      if (read.status === 'fulfilled') {
+        if (read.value?.status === 'in_review') tickets.push(read.value.key);
+      } else if (!refused(read.reason)) {
+        again.push(unread[at]);
+      }
+    });
+    unread = again;
+  }
+  if (tickets.length === 0) return null;
+  // The saved place covers the tickets it was saved for: a ticket handed
+  // off since then starts the watch an hour back, so an earlier watch
+  // that read past its events loses nothing.
+  const saved = parsePlace(cursor.read());
+  let after =
+    saved && tickets.every((key) => saved.tickets.includes(key))
+      ? saved.after
+      : undefined;
+  const since = new Date(now() - LOOKBACK_MS).toISOString();
+  while (current() && now() < deadline) {
+    const params = new URLSearchParams({
+      tickets: tickets.join(','),
+      wait: String(EVENT_WAIT_SECONDS),
+    });
+    if (after !== undefined) params.set('after', after);
+    else params.set('since', since);
+    let page;
+    const asked = now();
+    try {
+      page = await getJson(
+        context,
+        `/events?${params.toString()}`,
+        (EVENT_WAIT_SECONDS + 15) * 1000,
+      );
+    } catch (err) {
+      // A saved place the API no longer reads: start again from since.
+      if (err.status === 400 && after !== undefined) {
+        after = undefined;
+        cursor.write('');
+        continue;
+      }
+      // A refusal (a revoked key, a ticket gone) will not get better.
+      if (refused(err)) return null;
+      await sleep(RETRY_MS);
+      continue;
+    }
+    // A newer stop may have taken over while the request waited: it goes
+    // on from the saved place, so these events are its own.
+    if (!current()) return null;
+    after = page.next;
+    cursor.write(JSON.stringify({ after, tickets }));
+    const events = page.events.filter(wakesAgent);
+    if (events.length === 0) {
+      // A ticket a person moved out of review no longer waits on them.
+      // The move may be an old one read again, so ask where it is now.
+      const moved = new Set(
+        page.events
+          .filter(
+            (event) =>
+              event.kind === 'status_changed' &&
+              event.detail?.to !== 'in_review',
+          )
+          .map((event) => event.ticket),
+      );
+      for (const key of moved) {
+        try {
+          const ticket = await getJson(
+            context,
+            `/tickets/by-key/${encodeURIComponent(key)}`,
+          );
+          if (ticket.status === 'in_review') continue;
+        } catch {
+          continue;
+        }
+        tickets = tickets.filter((one) => one !== key);
+      }
+      if (tickets.length === 0) return null;
+      // An empty answer long before its wait (a server shutting down)
+      // must not become a tight loop.
+      if (now() - asked < (EVENT_WAIT_SECONDS * 1000) / 2) await sleep(1000);
+      continue;
+    }
+    const lines = [];
+    for (const check of checks) {
+      try {
+        lines.push(...(await check({ ...context, tickets })));
+      } catch {
+        // The event alone is enough to wake the session.
+      }
+    }
+    return [
+      'Aidelix: a person acted on a ticket you handed off. Call get_ticket ' +
+        'for it and do what it needs: merge an approved review if your ' +
+        'instructions say so, move a merged one to done, or answer what ' +
+        'waits on you.',
+      ...events.map(eventLine),
+      ...lines,
+    ].join('\n');
+  }
+  return null;
+}
 
 /**
  * What the hook answers for one Stop: `{ decision: 'block', reason }` to
@@ -140,10 +380,8 @@ export async function stopDecision({
   seen,
   checks = CHECKS,
 }) {
-  if (env.AIDELIX_STOP_HOOK === '0') return null;
-  const { endpoint, key } = config(env);
-  if (!key || !input?.transcript_path) return null;
-  const base = endpoint.replace(/\/v1\/mcp$/, '');
+  const conn = connection(env);
+  if (!conn || !input?.transcript_path) return null;
   let tickets;
   try {
     tickets = claimedTickets(readTranscript(input.transcript_path));
@@ -151,7 +389,7 @@ export async function stopDecision({
     return null;
   }
   if (tickets.length === 0) return null;
-  const context = { base, key, fetch, tickets };
+  const context = { ...conn, fetch, tickets };
   const lines = [];
   for (const check of checks) {
     try {
@@ -177,13 +415,61 @@ export async function stopDecision({
   };
 }
 
-/** Where the list a session last blocked on is kept. */
-function seenFile(sessionId) {
+/** Where the hook keeps `what` for a session: its last list, its watch. */
+function sessionFile(what, sessionId) {
   const safe = String(sessionId ?? 'session').replace(/[^A-Za-z0-9_-]/g, '');
-  return join(tmpdir(), `aidelix-stop-${safe || 'session'}.txt`);
+  const dir = privateDir();
+  return dir && join(dir, `${what}-${safe || 'session'}.txt`);
 }
 
-// Run as a program: the Stop event's JSON on stdin, the decision on stdout.
+/**
+ * A directory in tmpdir only this user can use, or null: on a shared
+ * machine a name planted there (a symlink, another user's directory) is
+ * never written through.
+ */
+function privateDir() {
+  const uid = process.getuid?.();
+  const dir = join(tmpdir(), `aidelix-${uid ?? 'user'}`);
+  try {
+    mkdirSync(dir, { mode: 0o700 });
+  } catch {
+    // It may be there already: checked below.
+  }
+  try {
+    const stat = lstatSync(dir);
+    if (!stat.isDirectory() || (uid !== undefined && stat.uid !== uid)) {
+      return null;
+    }
+    if ((stat.mode & 0o077) !== 0) return null;
+    return dir;
+  } catch {
+    return null;
+  }
+}
+
+/** Reads a file, or null. */
+function readOrNull(file) {
+  if (!file) return null;
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** Writes a file only its owner reads; a failure is no harm. */
+function writeQuietly(file, text) {
+  if (!file) return;
+  try {
+    writeFileSync(file, text, { mode: 0o600 });
+  } catch {
+    // Without the file the hook does a little more work, never less.
+  }
+}
+
+// Run as a program: the Stop event's JSON on stdin. The Stop hook writes
+// its decision on stdout; with --watch it writes the wake-up on stderr and
+// exits 2, which `asyncRewake` hands the session.
 const main = process.argv[1] && pathToFileURL(realpathSync(process.argv[1]));
 if (main && import.meta.url === main.href) {
   let raw = '';
@@ -196,27 +482,40 @@ if (main && import.meta.url === main.href) {
     } catch {
       return;
     }
-    const file = seenFile(input.session_id);
+    const readTranscript = (path) => readFileSync(path, 'utf8');
+    if (process.argv.includes('--watch')) {
+      const file = sessionFile('watch', input.session_id);
+      const place = sessionFile('cursor', input.session_id);
+      const token = randomUUID();
+      writeQuietly(file, token);
+      const wake = await watchDecision({
+        input,
+        env: process.env,
+        fetch: globalThis.fetch,
+        readTranscript,
+        // Without the file, the watch runs to its deadline.
+        current: () => (readOrNull(file) ?? token) === token,
+        cursor: {
+          read: () => readOrNull(place),
+          write: (text) => writeQuietly(place, text),
+        },
+        sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+      });
+      if (wake) {
+        process.stderr.write(`${wake}\n`);
+        process.exit(2);
+      }
+      return;
+    }
+    const file = sessionFile('stop', input.session_id);
     const decision = await stopDecision({
       input,
       env: process.env,
       fetch: globalThis.fetch,
-      readTranscript: (path) => readFileSync(path, 'utf8'),
+      readTranscript,
       seen: {
-        read: () => {
-          try {
-            return readFileSync(file, 'utf8');
-          } catch {
-            return null;
-          }
-        },
-        write: (text) => {
-          try {
-            writeFileSync(file, text, { mode: 0o600 });
-          } catch {
-            // Without the file the next stop may block once more; no harm.
-          }
-        },
+        read: () => readOrNull(file),
+        write: (text) => writeQuietly(file, text),
       },
     });
     if (decision) process.stdout.write(`${JSON.stringify(decision)}\n`);

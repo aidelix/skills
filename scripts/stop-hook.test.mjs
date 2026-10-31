@@ -477,5 +477,14 @@ describe('Stop hook watch', () => {
       false,
     );
     expect(wakesAgent(event('status_changed'))).toBe(false);
+    // A review that settled with work waiting on the agent (AIT-720).
+    expect(
+      wakesAgent(
+        event('review_settled', 'r', { stage: 'findings', waiting: 2 }),
+      ),
+    ).toBe(true);
+    expect(
+      wakesAgent(event('review_settled', 'r', { stage: 'flags', waiting: 0 })),
+    ).toBe(false);
   });
 });

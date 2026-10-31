@@ -83,7 +83,8 @@ refuses work that skips them:
 - Once the ticket is `in_review`, you may end the session: do not sleep in
   a loop waiting for an approval. In Claude Code the plugin's Stop hook
   wakes the session when a person approves or acts on a review you handed
-  off; elsewhere run `ait watch <key> --until approved,needs-me` in the
+  off, or when a findings run leaves findings for you to answer (answer
+  them before the person reads them); elsewhere run `ait watch <key> --until approved,needs-me` in the
   background. When woken, call `get_ticket` and do what the event needs.
 - Never leave a ticket in `in_review` with a draft pull request: mark it
   ready with `gh pr ready` before the move, or keep the ticket

@@ -51,7 +51,15 @@ const LOOKBACK_MS = 60 * 60_000;
 /** How many times the watch reads its tickets before it gives up. */
 const STARTUP_TRIES = 4;
 /** The event detail fields the wake-up names: ids, counts and states. */
-const DETAIL_KEYS = ['result', 'from', 'to', 'threads', 'pullRequest'];
+const DETAIL_KEYS = [
+  'result',
+  'from',
+  'to',
+  'threads',
+  'pullRequest',
+  'stage',
+  'waiting',
+];
 /** The most tickets one stop asks about. */
 const MAX_TICKETS = 10;
 
@@ -180,7 +188,9 @@ export function wakesAgent(event) {
     event.kind === 'question_asked' ||
     event.kind === 'question_answered' ||
     event.kind === 'pr_merged' ||
-    (event.kind === 'ci_finished' && event.detail?.result === 'failing')
+    (event.kind === 'ci_finished' && event.detail?.result === 'failing') ||
+    // A findings run or build left work for the agent (AIT-708, AIT-720).
+    (event.kind === 'review_settled' && Number(event.detail?.waiting) > 0)
   );
 }
 

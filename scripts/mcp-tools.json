@@ -49,5 +49,9 @@
   "reply_to_thread",
   "declare_changes",
   "set_manual_split",
-  "reply_to_finding"
+  "reply_to_finding",
+  "list_secrets",
+  "set_secret",
+  "get_secret",
+  "delete_secret"
 ]

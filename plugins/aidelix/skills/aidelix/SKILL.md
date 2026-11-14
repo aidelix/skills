@@ -106,6 +106,23 @@ To run many tickets at once, by release, label, epic or status, use the
 `aidelix-orchestrator` skill. To write new tickets, use the
 `aidelix-file-tickets` skill.
 
+## Keys, tokens and passwords
+
+Secrets live in the Aidelix Secret Store, never in the brain, a ticket, a
+comment, a commit, a log or the chat. Before you ask a person for a key,
+call `list_secrets` with the ticket's project and use the one there. When
+it is missing, `get_secret` fails with a `saveUrl`: send the person that
+link and the name, and they save the value there; never ask them to paste
+it to you. Save a value a person hands you with `set_secret`.
+
+Never print, log or commit a value. From a shell, prefer
+`ait secrets run --project <key> -- <command>`, which starts the command
+with the secrets in its environment and prints none of them (`--only` to
+name fewer). `ait secrets set <name> --project <key> < file` saves a value
+from stdin or a prompt that does not echo, never from an argument.
+`ait secrets list` shows names only. An agent key uses the secrets it saved
+and the ones an owner or admin granted it; every read is audited.
+
 ## Screenshots when the backend is unavailable
 
 Serve the built frontend locally. Use the repository's browser test tools to

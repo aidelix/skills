@@ -110,18 +110,25 @@ To run many tickets at once, by release, label, epic or status, use the
 
 Secrets live in the Aidelix Secret Store, never in the brain, a ticket, a
 comment, a commit, a log or the chat. Before you ask a person for a key,
-call `list_secrets` with the ticket's project and use the one there. When
-it is missing, `get_secret` fails with a `saveUrl`: send the person that
-link and the name, and they save the value there; never ask them to paste
-it to you. Save a value a person hands you with `set_secret`.
+call `list_secrets` with the ticket's project to see the names there. Before
+you first read or inject a secret the person did not hand you or name for
+this work, ask them which one you need and why, and wait for a yes: an
+owner's or admin's agent can read every secret, so access alone is not
+permission. When the name is missing, `get_secret` fails with a `saveUrl`:
+send the person that link and the name, and they save the value there;
+never ask them to paste it to you. Save a value a person hands you with
+`set_secret`.
 
 Never print, log or commit a value. From a shell, prefer
 `ait secrets run --project <key> -- <command>`, which starts the command
 with the secrets in its environment and prints none of them (`--only` to
 name fewer). `ait secrets set <name> --project <key> < file` saves a value
 from stdin or a prompt that does not echo, never from an argument.
+`ait secrets run` without `--only` hands the command every secret you can
+use, so name them with `--only` unless the person agreed to all of them.
 `ait secrets list` shows names only. An agent key uses the secrets it saved
-and the ones an owner or admin granted it; every read is audited.
+and the ones an owner or admin granted it, and every secret when it acts
+for an owner or admin; every read is audited.
 
 ## Screenshots when the backend is unavailable
 

@@ -110,6 +110,16 @@ each stop; set `AIDELIX_STOP_HOOK_WATCH_HOURS`
 to change that, or to `0` to turn the watch off. Outside Claude Code,
 `ait watch <ticket> --until approved,needs-me` waits for the same events.
 
+On each stop, the plugin also reports what the session used
+(`usage-report.mjs`, AIT-1071). It reads the session's transcript and its
+subagents' logs on your machine and, for each work session the agent
+opened with `claim_ticket`, sends Aidelix only numbers: per model, the
+input, output, cache-read and cache-write token counts of the turns after
+the claim. Never a prompt, a reply, code, a file path or the transcript.
+Aidelix prices them for estimates and never bills them. It runs in the
+background, gives up after a few seconds and never holds the stop. Set
+`AIDELIX_REPORT_USAGE=0` to turn it off.
+
 ## Other agents
 
 Each skill is a folder with a `SKILL.md` in `plugins/aidelix/skills/`, in

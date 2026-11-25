@@ -36,6 +36,7 @@ This skill needs the Aidelix MCP tools. If they are missing, use the
 | `brain` | Knowledge to write into the brain: a convention, how a subsystem works, how to deploy. It ends in brain pages, never code. |
 | `epic` | A container for several tickets toward one goal. |
 | `human` | Work only a person can do: make an account, pay, set a secret, click a button in another product. |
+| `questions` | Decisions only a person can make, asked as questions. It closes itself once every question is answered or withdrawn. |
 
 ## 3. Write the description: what and why
 
@@ -111,7 +112,16 @@ action to a step, with the exact value, command or link. Link it to the
 ticket that waits on it with `blocks`. Never put a secret in a step; say
 where the person gets it and where it goes.
 
-## 8. Confirm
+## 8. Decisions only a person can make
+
+File a `questions` ticket, never a `human` ticket whose steps say "answer
+the questions". Ask each decision on it with `ask_question`, with two to
+five options and a `recommendedOption`, and link it with `blocks` to the
+tickets the answers decide. Nobody claims it and it takes no steps. It
+waits in Needs a human, closes itself when its last question is answered
+or withdrawn, and a new question on a done one opens it again.
+
+## 9. Confirm
 
 After filing, tell the person each new key and title, one line each, with
 the link to the board. If you filed work you found while on another ticket,

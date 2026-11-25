@@ -111,7 +111,9 @@ environment offers. Brief each worker with:
 - To call `review_diff` on its `git diff` against the target branch in its
   review phase, before it opens or pushes a pull request, fix what it
   finds, and name the result in the review phase detail.
-- To ask a person with `ask_question` when only a person can decide, and to
+- To ask a person with `ask_question` when only a person can decide (on a
+  `questions` ticket when the decision holds no ticket of its own, never on
+  a `human` ticket whose steps say "answer the questions"), and to
   stop and report back when the ticket is waiting (a blocking question, a
   refused gate it cannot fix, or a pull request ready for review).
 - The same hard rules you follow: stop at `in_review`; never move a ticket to
